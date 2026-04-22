@@ -9,14 +9,16 @@ Deno.serve(async (req) => {
 
   try {
     const { prospect } = await req.json();
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("GROQ_API_KEY") || Deno.env.get("OPENAI_API_KEY");
 
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "OPENAI_API_KEY non configurée" }),
+        JSON.stringify({ error: "GROQ_API_KEY ou OPENAI_API_KEY non configurée" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const isGroq = !!Deno.env.get("GROQ_API_KEY");
 
     const prompt = `Tu représentes une entreprise qui vend des ÉTIQUETTES EN BOBINE sur-mesure pour tous types de contenants (bouteilles, pots, flacons, emballages).
 
@@ -43,14 +45,20 @@ Réponds en JSON :
   "body": "corps en HTML avec <p>"
 }`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const apiUrl = isGroq 
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://api.openai.com/v1/chat/completions";
+    
+    const model = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.8,
         response_format: { type: "json_object" },

@@ -21,14 +21,20 @@ Deno.serve(async (req) => {
 
   try {
     const criteria = await req.json();
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("GROQ_API_KEY") || Deno.env.get("OPENAI_API_KEY");
 
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "OPENAI_API_KEY non configurée dans Supabase" }),
+        JSON.stringify({ error: "GROQ_API_KEY ou OPENAI_API_KEY non configurée dans Supabase" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const isGroq = !!Deno.env.get("GROQ_API_KEY");
+
+    const excludeList = criteria.excludeCompanies && criteria.excludeCompanies.length > 0
+      ? `\n\n⚠️ IMPORTANT : NE PAS INCLURE ces entreprises déjà prospectées :\n${criteria.excludeCompanies.slice(0, 50).join(', ')}\n`
+      : '';
 
     const prompt = `${BUSINESS_CONTEXT}
 
@@ -42,7 +48,7 @@ CRITÈRES :
 - Taille d'entreprise : ${criteria.companySize || 'PME à ETI'}
 - Mots-clés : ${criteria.keywords || 'Aucun'}
 
-${criteria.department ? `IMPORTANT : Entreprises OBLIGATOIREMENT dans le département ${criteria.department}.` : ''}
+${criteria.department ? `IMPORTANT : Entreprises OBLIGATOIREMENT dans le département ${criteria.department}.` : ''}${excludeList}
 
 Pour chaque entreprise fournis : nom, secteur, ville, département (numéro), pays, site web, type de contenants, taille, nom du décisionnaire, poste, email professionnel probable, raison du ciblage, score de pertinence (1-100).
 
@@ -67,14 +73,20 @@ Réponds en JSON strict :
   ]
 }`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const apiUrl = isGroq 
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://api.openai.com/v1/chat/completions";
+    
+    const model = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7,
         response_format: { type: "json_object" },

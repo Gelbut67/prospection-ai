@@ -110,7 +110,7 @@ export default function Dashboard() {
 
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Performance des campagnes</h2>
-          {stats?.campaign_performance.length > 0 ? (
+          {stats?.campaign_performance?.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.campaign_performance}>
                 <CartesianGrid strokeDasharray="3 3" />

@@ -15,13 +15,22 @@ export async function getDashboardStats() {
     return acc;
   }, {});
 
+  const emailsSent = emailsData.filter(e => e.status === 'sent').length;
+  const emailsOpened = emailsData.filter(e => e.opened_at).length;
+  const emailsClicked = emailsData.filter(e => e.clicked_at).length;
+
   return {
-    total_prospects: prospects.count || 0,
-    total_campaigns: campaigns.count || 0,
-    emails_sent: emailsData.filter(e => e.status === 'sent').length,
-    emails_opened: emailsData.filter(e => e.opened_at).length,
-    emails_clicked: emailsData.filter(e => e.clicked_at).length,
-    status_breakdown: Object.entries(statusBreakdown).map(([status, count]) => ({ status, count }))
+    stats: {
+      total_prospects: prospects.count || 0,
+      total_campaigns: campaigns.count || 0,
+      emails_sent: emailsSent,
+      emails_opened: emailsOpened,
+      emails_clicked: emailsClicked,
+      open_rate: emailsSent > 0 ? ((emailsOpened / emailsSent) * 100).toFixed(1) : 0,
+      click_rate: emailsSent > 0 ? ((emailsClicked / emailsSent) * 100).toFixed(1) : 0,
+      active_follow_ups: 0
+    },
+    prospect_status: Object.entries(statusBreakdown).map(([status, count]) => ({ status, count }))
   };
 }
 
@@ -37,15 +46,19 @@ export async function getCampaignAnalytics() {
 
   if (error) throw error;
 
-  return campaigns.map(c => {
+  return (campaigns || []).map(c => {
     const emails = c.emails || [];
+    const totalSent = emails.filter(e => e.status === 'sent').length;
+    const opened = emails.filter(e => e.opened_at).length;
+    const clicked = emails.filter(e => e.clicked_at).length;
+    
     return {
       id: c.id,
       name: c.name,
       total_prospects: c.campaign_prospects?.[0]?.count || 0,
-      emails_sent: emails.filter(e => e.status === 'sent').length,
-      emails_opened: emails.filter(e => e.opened_at).length,
-      emails_clicked: emails.filter(e => e.clicked_at).length
+      total_sent: totalSent,
+      opened: opened,
+      clicked: clicked
     };
   });
 }

@@ -17,8 +17,11 @@ export default function Analytics() {
         getDashboardStats(),
         getCampaignAnalytics()
       ]);
-      setStats({ ...dashStats, campaigns: campaignStats });
+      console.log('Dashboard stats:', dashStats);
+      console.log('Campaign stats:', campaignStats);
+      setStats({ ...dashStats, campaign_performance: campaignStats });
     } catch (error) {
+      console.error('Analytics error:', error);
       toast.error('Erreur : ' + error.message);
     } finally {
       setLoading(false);
@@ -27,6 +30,15 @@ export default function Analytics() {
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Chargement...</div>;
+  }
+
+  if (!loading && (!stats || !stats.stats)) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-600 mb-4">Aucune donnée disponible pour le moment.</p>
+        <p className="text-sm text-gray-500">Commencez par créer des prospects et des campagnes !</p>
+      </div>
+    );
   }
 
   return (
@@ -39,29 +51,29 @@ export default function Analytics() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="card">
           <h3 className="text-sm text-gray-600 mb-1">Taux d'ouverture</h3>
-          <p className="text-3xl font-bold text-primary-600">{stats?.stats.open_rate || 0}%</p>
+          <p className="text-3xl font-bold text-primary-600">{stats.stats?.open_rate || 0}%</p>
           <p className="text-xs text-gray-500 mt-1">
-            {stats?.stats.emails_opened || 0} / {stats?.stats.emails_sent || 0} emails
+            {stats.stats?.emails_opened || 0} / {stats.stats?.emails_sent || 0} emails
           </p>
         </div>
 
         <div className="card">
           <h3 className="text-sm text-gray-600 mb-1">Taux de clic</h3>
-          <p className="text-3xl font-bold text-green-600">{stats?.stats.click_rate || 0}%</p>
+          <p className="text-3xl font-bold text-green-600">{stats.stats?.click_rate || 0}%</p>
           <p className="text-xs text-gray-500 mt-1">
-            {stats?.stats.emails_clicked || 0} clics
+            {stats.stats?.emails_clicked || 0} clics
           </p>
         </div>
 
         <div className="card">
           <h3 className="text-sm text-gray-600 mb-1">Emails envoyés</h3>
-          <p className="text-3xl font-bold text-blue-600">{stats?.stats.emails_sent || 0}</p>
+          <p className="text-3xl font-bold text-blue-600">{stats.stats?.emails_sent || 0}</p>
           <p className="text-xs text-gray-500 mt-1">Total envoyés</p>
         </div>
 
         <div className="card">
           <h3 className="text-sm text-gray-600 mb-1">Relances actives</h3>
-          <p className="text-3xl font-bold text-purple-600">{stats?.stats.active_follow_ups || 0}</p>
+          <p className="text-3xl font-bold text-purple-600">{stats.stats?.active_follow_ups || 0}</p>
           <p className="text-xs text-gray-500 mt-1">En cours</p>
         </div>
       </div>
