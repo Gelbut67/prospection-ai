@@ -19,10 +19,25 @@ export default function Auth() {
         await signIn(email, password);
         toast.success('Connexion réussie !');
       } else {
-        await signUp(email, password);
-        toast.success('Compte créé ! Vérifiez votre email pour confirmer.');
+        const { data } = await signUp(email, password);
+        console.log('Signup response:', data);
+        
+        // Si l'utilisateur est créé mais pas confirmé, on le connecte quand même
+        if (data?.user) {
+          // Essayer de se connecter directement
+          try {
+            await signIn(email, password);
+            toast.success('Compte créé et connecté !');
+          } catch (loginError) {
+            toast.success('Compte créé ! Connectez-vous maintenant.');
+            setMode('signin');
+          }
+        } else {
+          toast.success('Compte créé ! Vérifiez votre email pour confirmer.');
+        }
       }
     } catch (error) {
+      console.error('Auth error:', error);
       toast.error(error.message);
     } finally {
       setLoading(false);
