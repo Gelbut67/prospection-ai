@@ -1,0 +1,38 @@
+# Dépendances
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+.vercel/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Anciens fichiers backend (migration)
+database.sqlite
+database.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+coverage/
+.nyc_output/
+
+# Supabase
+supabase/.branches
+supabase/.temp
