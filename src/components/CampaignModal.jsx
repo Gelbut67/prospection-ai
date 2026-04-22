@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createCampaign, updateCampaign } from '../services/campaigns';
+import { supabase } from '../lib/supabase';
 
 export default function CampaignModal({ campaign, onClose }) {
   const [formData, setFormData] = useState({
@@ -39,7 +40,42 @@ export default function CampaignModal({ campaign, onClose }) {
   };
 
   const generateWithAI = async () => {
-    toast('Utilisez la page Découverte IA pour générer des emails personnalisés', { icon: '✨' });
+    if (!formData.name) {
+      toast.error('Veuillez d\'abord donner un nom à la campagne');
+      return;
+    }
+
+    setGeneratingAI(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Session token for campaign:', session?.access_token ? 'Present' : 'Missing');
+      
+      const { data, error } = await supabase.functions.invoke('generate-campaign-email', {
+        body: {
+          campaignName: formData.name,
+          context: 'Campagne de prospection pour vente d\'étiquettes en bobine'
+        },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`
+        }
+      });
+
+      console.log('Campaign email generation response:', { data, error });
+      if (error) throw error;
+
+      setFormData({
+        ...formData,
+        subject_template: data.subject,
+        body_template: data.body
+      });
+      
+      toast.success('Email généré par l\'IA !');
+    } catch (error) {
+      console.error('AI generation error:', error);
+      toast.error('Erreur lors de la génération : ' + error.message);
+    } finally {
+      setGeneratingAI(false);
+    }
   };
 
   return (
