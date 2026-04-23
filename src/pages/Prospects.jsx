@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, Upload } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Upload, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 import ProspectModal from '../components/ProspectModal';
 import { getProspects, deleteProspect } from '../services/prospects';
 
@@ -50,6 +51,46 @@ export default function Prospects() {
     fetchProspects();
   };
 
+  const exportToExcel = () => {
+    if (prospects.length === 0) {
+      toast.error('Aucun prospect à exporter');
+      return;
+    }
+
+    // Préparer les données pour l'export
+    const exportData = prospects.map(p => ({
+      'Prénom': p.first_name,
+      'Nom': p.last_name,
+      'Email': p.email,
+      'Téléphone': p.phone || '',
+      'Entreprise': p.company,
+      'Poste': p.position || '',
+      'Site web': p.website || '',
+      'Ville': p.city || '',
+      'Département': p.department || '',
+      'Secteur': p.sector || '',
+      'Taille entreprise': p.company_size || '',
+      'Type de contenant': p.container_type || '',
+      'Score de pertinence': p.relevance_score || '',
+      'Statut': p.status,
+      'Tags': p.tags || '',
+      'Notes': p.notes || '',
+      'Raison découverte': p.discovery_reason || '',
+      'Date création': new Date(p.created_at).toLocaleDateString('fr-FR')
+    }));
+
+    // Créer le fichier Excel
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Prospects');
+
+    // Télécharger le fichier
+    const fileName = `prospects_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    
+    toast.success(`${prospects.length} prospects exportés !`);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -57,10 +98,16 @@ export default function Prospects() {
           <h1 className="text-3xl font-bold text-gray-900">Prospects</h1>
           <p className="text-gray-600 mt-2">Gérez votre base de prospects</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-5 h-5" />
-          Nouveau prospect
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportToExcel} className="btn-secondary flex items-center gap-2">
+            <Download className="w-5 h-5" />
+            Exporter Excel
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-5 h-5" />
+            Nouveau prospect
+          </button>
+        </div>
       </div>
 
       <div className="card mb-6">

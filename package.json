@@ -8,7 +8,12 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "keywords": ["prospection", "ai", "supabase", "vercel"],
+  "keywords": [
+    "prospection",
+    "ai",
+    "supabase",
+    "vercel"
+  ],
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -18,7 +23,8 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.21.1",
-    "recharts": "^2.10.3"
+    "recharts": "^2.10.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
