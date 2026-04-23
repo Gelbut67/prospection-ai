@@ -71,23 +71,23 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Tableau de bord</h1>
-        <p className="text-gray-600 mt-2">Vue d'ensemble de votre activité de prospection</p>
+      <div className="mb-10">
+        <h1 className="text-4xl font-bold gradient-text mb-3">Tableau de bord</h1>
+        <p className="text-gray-600 text-lg">Vue d'ensemble de votre activité de prospection</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         {statCards.map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.name} className="card">
+            <div key={stat.name} className="stat-card group">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">{stat.name}</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+                  <p className="text-sm font-medium text-gray-500 mb-1">{stat.name}</p>
+                  <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
                 </div>
-                <div className={`${stat.color} p-3 rounded-lg`}>
-                  <Icon className="w-6 h-6 text-white" />
+                <div className={`${stat.color} p-4 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                  <Icon className="w-7 h-7 text-white" />
                 </div>
               </div>
             </div>
