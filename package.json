@@ -1,7 +1,7 @@
 {
-  "name": "prospection-ai",
+  "name": "yasar-prospection",
   "version": "2.0.0",
-  "description": "Application de prospection automatisée avec IA - Supabase + Vercel",
+  "description": "YASAR PROSPECTION - Application de prospection automatisée avec IA",
   "type": "module",
   "scripts": {
     "dev": "vite",

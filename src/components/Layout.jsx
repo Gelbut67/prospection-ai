@@ -33,7 +33,7 @@ export default function Layout({ children }) {
               <div className="bg-gradient-to-br from-primary-500 to-purple-600 p-2.5 rounded-2xl shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-xl font-bold gradient-text">Prospection AI</h1>
+              <h1 className="text-xl font-bold gradient-text">YASAR PROSPECTION</h1>
             </div>
             
             <nav className="space-y-2">
