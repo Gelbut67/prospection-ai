@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 export async function discoverProspects(criteria) {
   const { data: { session } } = await supabase.auth.getSession();
   
+  console.log('Discovery - Session token:', session?.access_token ? 'Present' : 'Missing');
+  
   // Récupérer les noms d'entreprises déjà enregistrées
   const { data: existingProspects } = await supabase
     .from('prospects')
@@ -20,6 +22,8 @@ export async function discoverProspects(criteria) {
       Authorization: `Bearer ${session?.access_token}`
     }
   });
+  
+  console.log('Discovery response:', { data, error });
   if (error) throw error;
   return data;
 }
