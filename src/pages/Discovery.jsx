@@ -145,12 +145,13 @@ const DEPARTMENTS = [
 
 export default function Discovery() {
   const [criteria, setCriteria] = useState({
-    sector: 'Tous secteurs',
-    location: 'France',
+    sector: 'Vins & Spiritueux',
+    location: '',
     department: '',
     containerType: 'Tous types',
     companySize: 'PME (20-100 employés)',
     keywords: '',
+    customPrompt: '',
     count: 10
   });
 
@@ -349,6 +350,23 @@ export default function Discovery() {
               onChange={(e) => setCriteria({ ...criteria, count: parseInt(e.target.value) })}
             />
           </div>
+        </div>
+
+        <div className="mt-6">
+          <label className="label flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary-600" />
+            Instructions personnalisées pour l'IA (optionnel)
+          </label>
+          <textarea
+            className="input"
+            rows="3"
+            placeholder="Ex: Je cherche des vignerons qui exportent à l'international, avec une production bio certifiée, et qui utilisent des bouteilles premium..."
+            value={criteria.customPrompt}
+            onChange={(e) => setCriteria({ ...criteria, customPrompt: e.target.value })}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            💡 Ajoutez des détails spécifiques pour affiner la recherche de l'IA
+          </p>
         </div>
 
         <button

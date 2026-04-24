@@ -36,6 +36,10 @@ Deno.serve(async (req) => {
       ? `\n\n⚠️ IMPORTANT : NE PAS INCLURE ces entreprises déjà prospectées :\n${criteria.excludeCompanies.slice(0, 50).join(', ')}\n`
       : '';
 
+    const customInstructions = criteria.customPrompt 
+      ? `\n\n🎯 INSTRUCTIONS SPÉCIFIQUES DE L'UTILISATEUR :\n${criteria.customPrompt}\n`
+      : '';
+
     const prompt = `${BUSINESS_CONTEXT}
 
 Génère une liste de ${criteria.count || 10} entreprises réelles françaises qui correspondent aux critères :
@@ -47,7 +51,7 @@ CRITÈRES :
 - Type de contenant : ${criteria.containerType || 'Tous types'}
 - Taille d'entreprise : ${criteria.companySize || 'PME à ETI'}
 - Mots-clés : ${criteria.keywords || 'Aucun'}
-
+${customInstructions}
 ${criteria.department ? `IMPORTANT : Entreprises OBLIGATOIREMENT dans le département ${criteria.department}.` : ''}${excludeList}
 
 Pour chaque entreprise fournis : nom, secteur, ville, département (numéro), pays, site web, type de contenants, taille, nom du décisionnaire, poste, email professionnel probable, raison du ciblage, score de pertinence (1-100).
