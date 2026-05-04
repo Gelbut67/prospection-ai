@@ -451,6 +451,9 @@ export default function Discovery() {
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 min-w-24">📍 Lieu :</span>
                     <span>{prospect.city}{prospect.department ? ` (${prospect.department})` : ''}, {prospect.country}</span>
+                    {prospect.city_confidence && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">{prospect.city_confidence}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 min-w-24">📦 Contenants :</span>
@@ -459,15 +462,24 @@ export default function Discovery() {
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 min-w-24">🏢 Taille :</span>
                     <span>{prospect.company_size}</span>
+                    {prospect.company_size_confidence && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">{prospect.company_size_confidence}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 min-w-24">👤 Contact :</span>
                     <span className="font-medium">{prospect.contact_name}</span>
                     <span className="text-gray-500">({prospect.contact_position})</span>
+                    {prospect.contact_name_confidence && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">{prospect.contact_name_confidence}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 min-w-24">✉️ Email :</span>
                     <span className="text-primary-600">{prospect.email}</span>
+                    {prospect.email_confidence && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">{prospect.email_confidence}</span>
+                    )}
                   </div>
                   {prospect.website && (
                     <div className="flex items-center gap-2">
@@ -482,6 +494,9 @@ export default function Discovery() {
                         {prospect.website}
                         <ExternalLink className="w-3 h-3" />
                       </a>
+                      {prospect.website_confidence && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">{prospect.website_confidence}</span>
+                      )}
                     </div>
                   )}
                 </div>
