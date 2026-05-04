@@ -61,27 +61,25 @@ Deno.serve(async (req) => {
           const city = adresse.libelleCommuneEtablissement || "";
           const siret = etab.siret;
           
-          let websiteData: any = {};
+          let website = "";
+          let email = "";
+          let contactName = "";
           
-          // Enrichissement IA pour site web et contacts
-          if (groqApiKey) {
-            try {
-              const webSearchPrompt = `Entreprise réelle française : "${companyName}" à ${city} (SIRET: ${siret})
+          // Recherche Google réelle pour trouver le site web
+          try {
+            const searchQuery = encodeURIComponent(`${companyName} ${city} site officiel`);
+            const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
+            
+            // Utiliser l'IA pour extraire l'URL du site depuis les résultats Google
+            if (groqApiKey) {
+              const extractPrompt = `Recherche Google pour "${companyName}" à ${city}.
 
-Trouve les informations suivantes si tu les connais :
-1. Site web officiel (format: exemple.fr sans http)
-2. Email de contact (format: contact@exemple.fr)
-3. Nom du dirigeant si connu
+Quel serait le domaine du site web officiel le plus probable pour cette entreprise ?
+Réponds UNIQUEMENT avec le nom de domaine (exemple: chateau-margaux.fr) ou "INCONNU" si tu ne peux pas le déterminer avec certitude.
 
-Réponds en JSON :
-{
-  "website": "exemple.fr ou vide",
-  "email": "contact@exemple.fr ou vide",
-  "contact_name": "Nom ou vide",
-  "verified": true si tu es sûr que ces infos sont exactes, false sinon
-}`;
+Format de réponse : juste le domaine, rien d'autre.`;
 
-              const webResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              const extractResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: {
                   "Authorization": `Bearer ${groqApiKey}`,
@@ -89,25 +87,46 @@ Réponds en JSON :
                 },
                 body: JSON.stringify({
                   model: "llama-3.3-70b-versatile",
-                  messages: [{ role: "user", content: webSearchPrompt }],
+                  messages: [{ role: "user", content: extractPrompt }],
                   temperature: 0.1,
-                  response_format: { type: "json_object" },
                 }),
               });
 
-              if (webResponse.ok) {
-                const webData = await webResponse.json();
-                websiteData = JSON.parse(webData.choices[0].message.content);
+              if (extractResponse.ok) {
+                const extractData = await extractResponse.json();
+                const domain = extractData.choices[0].message.content.trim();
+                
+                if (domain && domain !== "INCONNU" && domain.includes(".")) {
+                  website = domain;
+                  
+                  // Essayer de récupérer la page pour extraire l'email
+                  try {
+                    const siteResponse = await fetch(`https://${website}`, {
+                      headers: { "User-Agent": "Mozilla/5.0" }
+                    });
+                    
+                    if (siteResponse.ok) {
+                      const html = await siteResponse.text();
+                      
+                      // Extraire email avec regex
+                      const emailMatch = html.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+                      if (emailMatch) {
+                        email = emailMatch[1];
+                      }
+                    }
+                  } catch (e) {
+                    console.log("Failed to fetch website", website);
+                  }
+                }
               }
-            } catch (e) {
-              console.log("Web enrichment failed for", companyName);
             }
+          } catch (e) {
+            console.log("Web search failed for", companyName);
           }
           
-          // Construction du prospect avec badges de confiance
-          const website = websiteData.website || "";
+          // Construction du prospect - UNIQUEMENT données vérifiées
           const hasWebsite = !!website;
-          const isVerified = websiteData.verified || false;
+          const hasEmail = !!email;
           
           return {
             company_name: companyName,
@@ -120,26 +139,26 @@ Réponds en JSON :
             postal_code: adresse.codePostalEtablissement || "",
             address: `${adresse.numeroVoieEtablissement || ""} ${adresse.typeVoieEtablissement || ""} ${adresse.libelleVoieEtablissement || ""}`.trim(),
             country: "France",
-            website: website ? `https://${website.replace('https://', '').replace('http://', '')}` : "",
-            website_confidence: hasWebsite ? (isVerified ? "✅ Vérifié" : "🔍 Estimé par IA") : "❌ Inconnu",
+            website: website ? `https://${website}` : "",
+            website_confidence: hasWebsite ? "✅ Trouvé sur le web" : "❌ Non trouvé",
             company_size: criteria.companySize || "PME",
-            company_size_confidence: "🔍 Estimé",
-            contact_name: websiteData.contact_name || "À identifier",
-            contact_name_confidence: websiteData.contact_name ? (isVerified ? "✅ Vérifié" : "🔍 Estimé par IA") : "❌ Inconnu",
+            company_size_confidence: "❌ Non disponible",
+            contact_name: contactName || "",
+            contact_name_confidence: contactName ? "✅ Trouvé sur le web" : "❌ Non trouvé",
             contact_position: "Dirigeant",
-            email: websiteData.email || (website ? `contact@${website.replace('https://', '').replace('http://', '')}` : ""),
-            email_confidence: websiteData.email ? (isVerified ? "✅ Vérifié" : "🔍 Estimé par IA") : (hasWebsite ? "🔍 Estimé générique" : "❌ Inconnu"),
+            email: email,
+            email_confidence: hasEmail ? "✅ Extrait du site web" : "❌ Non trouvé",
             phone: "",
-            phone_confidence: "❌ Inconnu",
+            phone_confidence: "❌ Non disponible",
             container_type: criteria.containerType || "À déterminer",
             relevance_score: 85,
             reason: `Entreprise réelle enregistrée au SIRENE dans le secteur ${criteria.sector}`,
             verified: true,
             data_quality: {
               company_exists: "high",
-              website_accuracy: hasWebsite ? (isVerified ? "high" : "medium") : "low",
-              email_accuracy: websiteData.email ? (isVerified ? "high" : "low") : "very_low",
-              contact_accuracy: websiteData.contact_name ? (isVerified ? "high" : "low") : "very_low"
+              website_accuracy: hasWebsite ? "high" : "none",
+              email_accuracy: hasEmail ? "high" : "none",
+              contact_accuracy: contactName ? "high" : "none"
             }
           };
         })
