@@ -26,16 +26,23 @@ Deno.serve(async (req) => {
     const criteria = await req.json();
     const groqApiKey = Deno.env.get("GROQ_API_KEY");
 
-    // 1. Recherche dans l'API SIRENE (data.gouv.fr) - Entreprises réelles officielles
-    const naf = SECTOR_TO_NAF[criteria.sector] || "";
+    // 1. Recherche dans l'API SIRENE publique (recherche-entreprises.api.gouv.fr)
     const dept = criteria.department || "";
     
-    // Construction de la requête SIRENE
-    let query = "etatAdministratifEtablissement:A"; // Actives uniquement
-    if (naf) query += ` AND activitePrincipaleEtablissement:${naf}*`;
-    if (dept) query += ` AND codeCommuneEtablissement:${dept}*`;
+    // Construction de la requête
+    let searchParams = new URLSearchParams();
+    searchParams.set("per_page", String(Math.min(criteria.count || 10, 25)));
     
-    const sireneUrl = `https://api.insee.fr/entreprises/sirene/V3.11/siret?q=${encodeURIComponent(query)}&nombre=${Math.min(criteria.count || 10, 50)}`;
+    if (dept) {
+      searchParams.set("code_postal", dept + "*");
+    }
+    
+    // Ajouter un terme de recherche basé sur le secteur
+    if (criteria.sector && criteria.sector !== "Tous secteurs") {
+      searchParams.set("activite_principale", criteria.sector);
+    }
+    
+    const sireneUrl = `https://recherche-entreprises.api.gouv.fr/search?${searchParams.toString()}`;
     
     const sireneResponse = await fetch(sireneUrl, {
       headers: {
@@ -47,19 +54,14 @@ Deno.serve(async (req) => {
     
     if (sireneResponse.ok) {
       const sireneData = await sireneResponse.json();
-      const etablissements = sireneData.etablissements || [];
+      const results = sireneData.results || [];
       
       // 2. Enrichir chaque entreprise avec IA pour trouver site web et contacts
       const enrichedProspects = await Promise.all(
-        etablissements.slice(0, criteria.count || 10).map(async (etab: any) => {
-          const uniteLegale = etab.uniteLegale || {};
-          const adresse = etab.adresseEtablissement || {};
-          
-          const companyName = uniteLegale.denominationUniteLegale || 
-                             `${uniteLegale.prenom1UniteLegale || ''} ${uniteLegale.nomUniteLegale || ''}`.trim() ||
-                             "Entreprise";
-          const city = adresse.libelleCommuneEtablissement || "";
-          const siret = etab.siret;
+        results.slice(0, criteria.count || 10).map(async (company: any) => {
+          const companyName = company.nom_complet || company.nom_raison_sociale || "Entreprise";
+          const city = company.siege?.commune || "";
+          const siret = company.siege?.siret || "";
           
           let website = "";
           let email = "";
@@ -135,9 +137,9 @@ Format de réponse : juste le domaine, rien d'autre.`;
             sector: criteria.sector,
             city: city,
             city_confidence: "✅ Vérifié SIRENE",
-            department: adresse.codeCommuneEtablissement?.substring(0, 2) || "",
-            postal_code: adresse.codePostalEtablissement || "",
-            address: `${adresse.numeroVoieEtablissement || ""} ${adresse.typeVoieEtablissement || ""} ${adresse.libelleVoieEtablissement || ""}`.trim(),
+            department: company.siege?.code_postal?.substring(0, 2) || "",
+            postal_code: company.siege?.code_postal || "",
+            address: company.siege?.adresse || "",
             country: "France",
             website: website ? `https://${website}` : "",
             website_confidence: hasWebsite ? "✅ Trouvé sur le web" : "❌ Non trouvé",
