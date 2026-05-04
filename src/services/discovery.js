@@ -5,19 +5,9 @@ export async function discoverProspects(criteria) {
   
   console.log('Discovery - Session token:', session?.access_token ? 'Present' : 'Missing');
   
-  // Récupérer les noms d'entreprises déjà enregistrées
-  const { data: existingProspects } = await supabase
-    .from('prospects')
-    .select('company')
-    .not('company', 'is', null);
-  
-  const existingCompanies = existingProspects?.map(p => p.company.toLowerCase().trim()) || [];
-  
-  const { data, error } = await supabase.functions.invoke('discover-prospects', {
-    body: {
-      ...criteria,
-      excludeCompanies: existingCompanies
-    },
+  // Utiliser la nouvelle fonction avec badges de confiance
+  const { data, error } = await supabase.functions.invoke('discover-real-prospects', {
+    body: criteria,
     headers: {
       Authorization: `Bearer ${session?.access_token}`
     }
