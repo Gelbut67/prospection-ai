@@ -44,17 +44,23 @@ Deno.serve(async (req) => {
     
     const sireneUrl = `https://recherche-entreprises.api.gouv.fr/search?${searchParams.toString()}`;
     
+    console.log("SIRENE URL:", sireneUrl);
+    
     const sireneResponse = await fetch(sireneUrl, {
       headers: {
         "Accept": "application/json"
       }
     });
 
+    console.log("SIRENE Response status:", sireneResponse.status);
+
     let prospects = [];
     
     if (sireneResponse.ok) {
       const sireneData = await sireneResponse.json();
+      console.log("SIRENE Data:", JSON.stringify(sireneData).substring(0, 500));
       const results = sireneData.results || [];
+      console.log("Results count:", results.length);
       
       // 2. Enrichir chaque entreprise avec IA pour trouver site web et contacts
       const enrichedProspects = await Promise.all(
