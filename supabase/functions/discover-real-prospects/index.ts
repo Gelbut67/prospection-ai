@@ -237,12 +237,21 @@ Réponds en JSON :
           linkedin: "INCONNU",
           facebook: "INCONNU",
           contact_name: "INCONNU",
-          address: "INCONNU"
+          address: "INCONNU",
+          postal_code: "INCONNU"
         };
 
         if (step2Response.ok) {
-          const step2Data = await step2Response.json();
-          enrichedData = JSON.parse(step2Data.choices[0].message.content);
+          try {
+            const step2Data = await step2Response.json();
+            const content = step2Data.choices[0].message.content;
+            enrichedData = JSON.parse(content);
+            console.log(`Enriched ${prospect.company_name}:`, enrichedData);
+          } catch (e) {
+            console.error(`Failed to parse enrichment for ${prospect.company_name}:`, e);
+          }
+        } else {
+          console.error(`Enrichment API failed for ${prospect.company_name}:`, step2Response.status);
         }
 
         // Sous-étape 2B: Si site web trouvé, essayer de le scraper pour email/téléphone
@@ -341,10 +350,17 @@ Réponds en JSON :
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error:", error);
+    console.error("Error stack:", error.stack);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        success: false,
+        error: error.message || "Erreur inconnue",
+        details: error.stack,
+        count: 0,
+        prospects: []
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
