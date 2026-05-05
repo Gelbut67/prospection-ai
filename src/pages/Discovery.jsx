@@ -177,31 +177,32 @@ export default function Discovery() {
 
     try {
       const { supabase } = await import('../lib/supabase');
-      const { data: { session } } = await supabase.auth.getSession();
 
       const response = await supabase.functions.invoke('chat-groq', {
         body: {
           message: userMessage,
           context: {
             criteria,
-            prospects: prospects.map(p => ({
+            prospects: prospects.slice(0, 5).map(p => ({
               name: p.company_name,
               city: p.city,
               sector: p.sector
             }))
           }
-        },
-        headers: session?.access_token ? {
-          Authorization: `Bearer ${session.access_token}`
-        } : {}
+        }
       });
+
+      console.log('Chat response:', response);
 
       if (response.data?.success) {
         setChatMessages(prev => [...prev, { role: 'assistant', content: response.data.reply }]);
       } else {
-        toast.error('Erreur lors du chat');
+        const errorMsg = response.data?.error || response.error?.message || 'Erreur inconnue';
+        toast.error('Erreur: ' + errorMsg);
+        console.error('Chat error:', response);
       }
     } catch (error) {
+      console.error('Chat exception:', error);
       toast.error('Erreur: ' + error.message);
     } finally {
       setChatLoading(false);
