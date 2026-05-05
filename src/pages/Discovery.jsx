@@ -160,6 +160,53 @@ export default function Discovery() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [emailPreview, setEmailPreview] = useState(null);
   const [generatingEmail, setGeneratingEmail] = useState(false);
+  
+  // Chat avec Groq
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const handleChatMessage = async () => {
+    if (!chatInput.trim()) return;
+
+    const userMessage = chatInput;
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setChatLoading(true);
+
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await supabase.functions.invoke('chat-groq', {
+        body: {
+          message: userMessage,
+          context: {
+            criteria,
+            prospects: prospects.map(p => ({
+              name: p.company_name,
+              city: p.city,
+              sector: p.sector
+            }))
+          }
+        },
+        headers: session?.access_token ? {
+          Authorization: `Bearer ${session.access_token}`
+        } : {}
+      });
+
+      if (response.data?.success) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: response.data.reply }]);
+      } else {
+        toast.error('Erreur lors du chat');
+      }
+    } catch (error) {
+      toast.error('Erreur: ' + error.message);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   const handleSearch = async () => {
     setLoading(true);
@@ -369,24 +416,102 @@ export default function Discovery() {
           </p>
         </div>
 
-        <button
-          onClick={handleSearch}
-          disabled={loading}
-          className="btn-primary mt-6 w-full md:w-auto flex items-center justify-center gap-2 text-lg py-3 px-8"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              L'IA recherche des prospects...
-            </>
-          ) : (
-            <>
-              <Search className="w-5 h-5" />
-              Lancer la recherche IA
-            </>
-          )}
-        </button>
+        <div className="flex gap-4 mt-6">
+          <button
+            onClick={handleSearch}
+            disabled={loading}
+            className="btn-primary flex-1 md:flex-none flex items-center justify-center gap-2 text-lg py-3 px-8"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                L'IA recherche...
+              </>
+            ) : (
+              <>
+                <Search className="w-5 h-5" />
+                Lancer la recherche
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className="btn-secondary flex items-center gap-2 py-3 px-6"
+          >
+            <Sparkles className="w-5 h-5" />
+            {showChat ? 'Masquer le chat' : 'Discuter avec Groq'}
+          </button>
+        </div>
       </div>
+
+      {/* Chat avec Groq */}
+      {showChat && (
+        <div className="card mb-6 bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-purple-600" />
+            Discussion avec Groq
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Posez des questions sur vos critères de recherche, demandez des précisions sur les résultats, ou affinez votre ciblage.
+          </p>
+
+          <div className="bg-white rounded-lg border border-purple-200 p-4 mb-4 max-h-96 overflow-y-auto">
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-gray-400 py-8">
+                <Sparkles className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>Commencez une conversation avec Groq</p>
+                <p className="text-xs mt-1">Ex: "Pourquoi ces entreprises ?" ou "Trouve-moi des brasseries à Bordeaux"</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                        msg.role === 'user'
+                          ? 'bg-primary-500 text-white'
+                          : 'bg-gray-100 text-gray-900'
+                      }`}
+                    >
+                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-gray-100 rounded-lg px-4 py-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleChatMessage()}
+              placeholder="Posez votre question à Groq..."
+              className="input flex-1"
+              disabled={chatLoading}
+            />
+            <button
+              onClick={handleChatMessage}
+              disabled={chatLoading || !chatInput.trim()}
+              className="btn-primary px-6"
+            >
+              {chatLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Envoyer'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {prospects.length > 0 && (
         <div className="card">
