@@ -1,4 +1,4 @@
-// Edge Function: Recherche approfondie multi-étapes avec IA
+// Edge Function: Recherche optimisée rapide (1 seul appel IA)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -18,122 +18,58 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log("Starting deep search with criteria:", criteria);
+    console.log("Starting optimized search:", criteria);
 
-    // ÉTAPE 0: Si une localisation précise est donnée, faire une recherche locale d'abord
-    let localProspects = [];
-    
-    if (criteria.location || criteria.department) {
-      const locationQuery = criteria.location || `département ${criteria.department}`;
-      const localSearchPrompt = `Recherche locale : "${criteria.sector || 'entreprises'}" près de "${locationQuery}" en France.
+    // UN SEUL APPEL IA avec toutes les infos complètes
+    const prompt = `Tu es un expert en prospection B2B pour une entreprise qui vend des étiquettes en bobine.
 
-MISSION : Liste TOUTES les entreprises locales que tu connais dans cette zone géographique précise.
-Privilégie les entreprises de proximité, même petites ou artisanales.
+🎯 MISSION : Génère ${criteria.count || 10} entreprises RÉELLES françaises avec TOUTES leurs coordonnées.
 
-Critères :
-- Zone : ${locationQuery}
-- Secteur : ${criteria.sector || 'tous'}
-- Rayon : maximum 20-30km autour de ${locationQuery}
-
-Donne UNIQUEMENT des entreprises que tu connais dans cette zone géographique.
-
-Réponds en JSON :
-{
-  "local_companies": [
-    {
-      "name": "Nom exact",
-      "city": "Ville exacte",
-      "distance_info": "à X km de ${locationQuery}",
-      "is_local": true
-    }
-  ]
-}`;
-
-      try {
-        const localResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${groqApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: localSearchPrompt }],
-            temperature: 0,
-            response_format: { type: "json_object" },
-          }),
-        });
-
-        if (localResponse.ok) {
-          const localData = await localResponse.json();
-          const parsed = JSON.parse(localData.choices[0].message.content);
-          localProspects = (parsed.local_companies || []).map((c: any) => ({
-            company_name: c.name,
-            city: c.city,
-            department: criteria.department || "",
-            google_query: `${c.name} ${c.city} site officiel`,
-            reason: `Entreprise locale ${c.distance_info || 'dans la zone'}`,
-            criteria_match: `Proximité géographique de ${locationQuery}`,
-            confidence: "high",
-            is_local: true
-          }));
-          
-          console.log(`Local search found ${localProspects.length} nearby companies`);
-        }
-      } catch (e) {
-        console.log("Local search failed, continuing with general search");
-      }
-    }
-
-    // ÉTAPE 1: L'IA génère une liste d'entreprises réelles + requêtes de recherche optimisées
-    const step1Prompt = `Tu es un expert en prospection B2B pour une entreprise qui vend des étiquettes en bobine.
-
-🎯 MISSION CRITIQUE : Génère ${criteria.count || 10} entreprises RÉELLES françaises qui correspondent EXACTEMENT à TOUS ces critères :
-
-📋 CRITÈRES OBLIGATOIRES :
+📋 CRITÈRES STRICTS :
 ${criteria.sector ? `✅ Secteur : "${criteria.sector}" - OBLIGATOIRE` : ''}
-${criteria.department ? `✅ Département : ${criteria.department} - OBLIGATOIRE (ne donne QUE des entreprises dans ce département)` : ''}
-${criteria.location ? `✅ Ville/Zone : ${criteria.location} - OBLIGATOIRE` : ''}
-${criteria.keywords ? `✅ Mots-clés : ${criteria.keywords} - OBLIGATOIRE (l'entreprise DOIT correspondre)` : ''}
-${criteria.companySize ? `✅ Taille : ${criteria.companySize}` : ''}
-${criteria.containerType ? `✅ Type de contenant : ${criteria.containerType}` : ''}
-
-${criteria.customPrompt ? `🔥 INSTRUCTIONS PERSONNALISÉES PRIORITAIRES (À RESPECTER ABSOLUMENT) :
-${criteria.customPrompt}
-
-⚠️ Ces instructions personnalisées sont PRIORITAIRES sur tout le reste !` : ''}
+${criteria.department ? `✅ Département : ${criteria.department} - OBLIGATOIRE` : ''}
+${criteria.location ? `✅ Ville : ${criteria.location} - OBLIGATOIRE (privilégie les entreprises PROCHES)` : ''}
+${criteria.keywords ? `✅ Mots-clés : ${criteria.keywords}` : ''}
+${criteria.customPrompt ? `\n🔥 INSTRUCTIONS PRIORITAIRES :\n${criteria.customPrompt}` : ''}
 
 ⚠️ RÈGLES ABSOLUES :
-1. Si un critère géographique est spécifié (département, ville), NE DONNE QUE des entreprises dans cette zone
-2. Si des instructions personnalisées sont données, elles sont PRIORITAIRES
-3. VÉRIFIE que chaque entreprise correspond à TOUS les critères avant de la proposer
-4. Si tu ne connais pas d'entreprise qui correspond EXACTEMENT, dis-le plutôt que d'en inventer
-5. Donne UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment
+1. UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT
+2. Si localisation donnée, privilégie les entreprises LOCALES (rayon 20km)
+3. Donne TOUTES les infos que tu connais pour chaque entreprise
+4. Si tu ne connais pas une info, marque "INCONNU"
+5. NE JAMAIS INVENTER
 
 Pour CHAQUE entreprise, fournis :
-1. Nom exact de l'entreprise
-2. Ville exacte (DOIT correspondre aux critères géographiques)
-3. Département (DOIT correspondre si spécifié)
-4. Une requête Google optimale
-5. Pourquoi cette entreprise correspond EXACTEMENT aux critères
-6. Comment elle répond aux instructions personnalisées (si présentes)
+- Nom exact
+- Adresse COMPLÈTE (numéro, rue, code postal, ville)
+- Site web
+- Email
+- Téléphone
+- Nom du dirigeant
+- LinkedIn/Facebook
 
 Réponds en JSON :
 {
   "prospects": [
     {
       "company_name": "Nom exact",
+      "address": "12 rue de la Paix, 33000 Bordeaux ou INCONNU",
       "city": "Ville",
-      "department": "XX",
-      "google_query": "requête optimisée",
-      "reason": "pourquoi cette entreprise correspond EXACTEMENT aux critères",
-      "criteria_match": "comment elle répond aux instructions personnalisées",
-      "confidence": "high ou medium"
+      "postal_code": "33000 ou INCONNU",
+      "department": "33",
+      "website": "exemple.fr ou INCONNU",
+      "email": "contact@exemple.fr ou INCONNU",
+      "phone": "0556123456 ou INCONNU",
+      "contact_name": "Jean Dupont ou INCONNU",
+      "linkedin": "URL ou INCONNU",
+      "facebook": "URL ou INCONNU",
+      "reason": "Pourquoi cette entreprise",
+      "confidence": "high si sûr à 100%, medium sinon"
     }
   ]
 }`;
 
-    const step1Response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${groqApiKey}`,
@@ -141,223 +77,89 @@ Réponds en JSON :
       },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: step1Prompt }],
+        messages: [{ role: "user", content: prompt }],
         temperature: 0,
         response_format: { type: "json_object" },
       }),
     });
 
-    if (!step1Response.ok) {
-      throw new Error("Erreur IA étape 1");
+    if (!response.ok) {
+      throw new Error(`IA API error: ${response.status}`);
     }
 
-    const step1Data = await step1Response.json();
-    const generalProspects = JSON.parse(step1Data.choices[0].message.content).prospects || [];
-    
-    console.log(`Step 1: Found ${generalProspects.length} general prospects`);
+    const data = await response.json();
+    const aiProspects = JSON.parse(data.choices[0].message.content).prospects || [];
 
-    // Fusionner les prospects locaux (prioritaires) avec les généraux
-    const allProspects = [...localProspects, ...generalProspects];
-    const initialProspects = allProspects.slice(0, criteria.count || 10);
-    
-    console.log(`Combined: ${localProspects.length} local + ${generalProspects.length} general = ${initialProspects.length} total`);
+    console.log(`AI returned ${aiProspects.length} prospects`);
 
-    // VALIDATION STRICTE : Filtrer les prospects qui ne correspondent pas aux critères
-    const validatedProspects = initialProspects.filter((p: any) => {
-      // Vérifier département si spécifié
-      if (criteria.department && p.department !== criteria.department) {
-        console.log(`Rejected ${p.company_name}: wrong department (${p.department} vs ${criteria.department})`);
-        return false;
-      }
-      
-      // Vérifier ville si spécifiée
-      if (criteria.location && !p.city.toLowerCase().includes(criteria.location.toLowerCase())) {
-        console.log(`Rejected ${p.company_name}: wrong location (${p.city} vs ${criteria.location})`);
-        return false;
-      }
-      
-      return true;
+    // Formater les prospects avec badges de confiance
+    const prospects = aiProspects.map((p: any) => {
+      const hasWebsite = p.website && p.website !== "INCONNU";
+      const hasEmail = p.email && p.email !== "INCONNU";
+      const hasPhone = p.phone && p.phone !== "INCONNU";
+      const hasContact = p.contact_name && p.contact_name !== "INCONNU";
+      const hasAddress = p.address && p.address !== "INCONNU";
+      const hasSocial = (p.linkedin && p.linkedin !== "INCONNU") || (p.facebook && p.facebook !== "INCONNU");
+      const isHighConfidence = p.confidence === "high";
+
+      return {
+        company_name: p.company_name,
+        company_name_confidence: isHighConfidence ? "✅ Entreprise connue" : "⚠️ À vérifier",
+        siret: "",
+        sector: criteria.sector || "À déterminer",
+        city: p.city,
+        city_confidence: "✅ Vérifié",
+        department: p.department || criteria.department || "",
+        postal_code: p.postal_code !== "INCONNU" ? p.postal_code : "",
+        address: hasAddress ? p.address : "",
+        address_confidence: hasAddress ? "✅ Adresse exacte" : "❌ Non trouvée",
+        country: "France",
+        website: hasWebsite ? (p.website.startsWith('http') ? p.website : `https://${p.website}`) : "",
+        website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
+        company_size: criteria.companySize || "PME",
+        company_size_confidence: "❌ Non disponible",
+        contact_name: hasContact ? p.contact_name : "",
+        contact_name_confidence: hasContact ? "✅ Connu de l'IA" : "❌ Inconnu",
+        contact_position: "Dirigeant",
+        email: hasEmail ? p.email : "",
+        email_confidence: hasEmail ? "✅ Connu de l'IA" : "❌ Inconnu",
+        phone: hasPhone ? p.phone : "",
+        phone_confidence: hasPhone ? "✅ Connu de l'IA" : "❌ Inconnu",
+        linkedin: p.linkedin !== "INCONNU" ? p.linkedin : "",
+        facebook: p.facebook !== "INCONNU" ? p.facebook : "",
+        social_media_confidence: hasSocial ? "✅ Trouvé" : "❌ Inconnu",
+        container_type: criteria.containerType || "À déterminer",
+        relevance_score: isHighConfidence ? 90 : 75,
+        reason: p.reason,
+        verified: isHighConfidence,
+        data_quality: {
+          company_exists: isHighConfidence ? "high" : "medium",
+          website_accuracy: hasWebsite ? "high" : "none",
+          email_accuracy: hasEmail ? "high" : "none",
+          contact_accuracy: hasContact ? "medium" : "none"
+        }
+      };
     });
 
-    console.log(`After validation: ${validatedProspects.length} prospects match criteria`);
-
-    // ÉTAPE 2: Pour chaque entreprise validée, recherche approfondie des coordonnées
-    const enrichedProspects = await Promise.all(
-      validatedProspects.map(async (prospect: any) => {
-        console.log(`Enriching: ${prospect.company_name}`);
-
-        // Sous-étape 2A: L'IA cherche dans sa mémoire toutes les infos sur cette entreprise
-        const step2Prompt = `Entreprise : "${prospect.company_name}" à ${prospect.city}
-
-Donne-moi TOUTES les informations EXACTES que tu connais sur cette entreprise :
-- Adresse COMPLÈTE et EXACTE (numéro, rue, code postal, ville) - PRIORITAIRE
-- Site web officiel (domaine exact)
-- Email de contact (si tu le connais)
-- Téléphone (si tu le connais)
-- Profil LinkedIn (URL exacte)
-- Page Facebook (URL exacte)
-- Nom du dirigeant actuel (si tu le connais)
-
-⚠️ RÈGLE ABSOLUE : 
-- Si tu ne connais pas une info EXACTE, marque "INCONNU"
-- NE JAMAIS INVENTER ou estimer
-- Pour l'adresse, donne le format complet : "12 rue de la Paix, 33000 Bordeaux"
-
-Réponds en JSON :
-{
-  "address": "adresse complète exacte ou INCONNU",
-  "postal_code": "code postal ou INCONNU",
-  "website": "domaine.fr ou INCONNU",
-  "email": "email ou INCONNU",
-  "phone": "téléphone ou INCONNU",
-  "linkedin": "URL ou INCONNU",
-  "facebook": "URL ou INCONNU",
-  "contact_name": "nom ou INCONNU",
-  "additional_info": "toute autre info pertinente"
-}`;
-
-        const step2Response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${groqApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: step2Prompt }],
-            temperature: 0,
-            response_format: { type: "json_object" },
-          }),
-        });
-
-        let enrichedData: any = {
-          website: "INCONNU",
-          email: "INCONNU",
-          phone: "INCONNU",
-          linkedin: "INCONNU",
-          facebook: "INCONNU",
-          contact_name: "INCONNU",
-          address: "INCONNU",
-          postal_code: "INCONNU"
-        };
-
-        if (step2Response.ok) {
-          try {
-            const step2Data = await step2Response.json();
-            const content = step2Data.choices[0].message.content;
-            enrichedData = JSON.parse(content);
-            console.log(`Enriched ${prospect.company_name}:`, enrichedData);
-          } catch (e) {
-            console.error(`Failed to parse enrichment for ${prospect.company_name}:`, e);
-          }
-        } else {
-          console.error(`Enrichment API failed for ${prospect.company_name}:`, step2Response.status);
-        }
-
-        // Sous-étape 2B: Si site web trouvé, essayer de le scraper pour email/téléphone
-        if (enrichedData.website && enrichedData.website !== "INCONNU") {
-          try {
-            const websiteUrl = enrichedData.website.startsWith('http') 
-              ? enrichedData.website 
-              : `https://${enrichedData.website}`;
-            
-            const siteResponse = await fetch(websiteUrl, {
-              headers: { 
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-              },
-              redirect: "follow"
-            });
-
-            if (siteResponse.ok) {
-              const html = await siteResponse.text();
-              
-              // Extraire email si pas déjà trouvé
-              if (enrichedData.email === "INCONNU") {
-                const emailMatch = html.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
-                if (emailMatch) enrichedData.email = emailMatch[1];
-              }
-              
-              // Extraire téléphone français si pas déjà trouvé
-              if (enrichedData.phone === "INCONNU") {
-                const phoneMatch = html.match(/0[1-9](?:[\s.-]?\d{2}){4}/);
-                if (phoneMatch) enrichedData.phone = phoneMatch[0];
-              }
-
-              console.log(`Scraped ${websiteUrl}: email=${enrichedData.email !== "INCONNU"}, phone=${enrichedData.phone !== "INCONNU"}`);
-            }
-          } catch (e) {
-            console.log(`Failed to scrape: ${enrichedData.website}`);
-          }
-        }
-
-        // Construire le prospect final avec badges de confiance
-        const hasWebsite = enrichedData.website !== "INCONNU";
-        const hasEmail = enrichedData.email !== "INCONNU";
-        const hasPhone = enrichedData.phone !== "INCONNU";
-        const hasContact = enrichedData.contact_name !== "INCONNU";
-        const hasSocial = enrichedData.linkedin !== "INCONNU" || enrichedData.facebook !== "INCONNU";
-
-        return {
-          company_name: prospect.company_name,
-          company_name_confidence: prospect.confidence === "high" ? "✅ Entreprise connue" : "⚠️ À vérifier",
-          siret: "",
-          sector: criteria.sector || "À déterminer",
-          city: prospect.city,
-          city_confidence: "✅ Vérifié",
-          department: prospect.department || "",
-          postal_code: enrichedData.postal_code !== "INCONNU" ? enrichedData.postal_code : "",
-          address: enrichedData.address !== "INCONNU" ? enrichedData.address : "",
-          address_confidence: enrichedData.address !== "INCONNU" ? "✅ Adresse exacte" : "❌ Non trouvée",
-          country: "France",
-          website: hasWebsite ? (enrichedData.website.startsWith('http') ? enrichedData.website : `https://${enrichedData.website}`) : "",
-          website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
-          company_size: criteria.companySize || "PME",
-          company_size_confidence: "❌ Non disponible",
-          contact_name: hasContact ? enrichedData.contact_name : "",
-          contact_name_confidence: hasContact ? "✅ Connu de l'IA" : "❌ Inconnu",
-          contact_position: "Dirigeant",
-          email: hasEmail ? enrichedData.email : "",
-          email_confidence: hasEmail ? "✅ Trouvé" : "❌ Inconnu",
-          phone: hasPhone ? enrichedData.phone : "",
-          phone_confidence: hasPhone ? "✅ Trouvé" : "❌ Inconnu",
-          linkedin: enrichedData.linkedin !== "INCONNU" ? enrichedData.linkedin : "",
-          facebook: enrichedData.facebook !== "INCONNU" ? enrichedData.facebook : "",
-          social_media_confidence: hasSocial ? "✅ Trouvé" : "❌ Inconnu",
-          container_type: criteria.containerType || "À déterminer",
-          relevance_score: prospect.confidence === "high" ? 90 : 75,
-          reason: prospect.reason,
-          verified: prospect.confidence === "high",
-          additional_info: enrichedData.additional_info || "",
-          data_quality: {
-            company_exists: prospect.confidence === "high" ? "high" : "medium",
-            website_accuracy: hasWebsite ? "high" : "none",
-            email_accuracy: hasEmail ? "high" : "none",
-            contact_accuracy: hasContact ? "medium" : "none"
-          }
-        };
-      })
-    );
-
-    console.log(`Enrichment complete: ${enrichedProspects.length} prospects`);
+    console.log(`Returning ${prospects.length} formatted prospects`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        count: enrichedProspects.length,
-        prospects: enrichedProspects,
-        source: "Recherche approfondie IA multi-étapes + Web scraping"
+        count: prospects.length,
+        prospects: prospects,
+        source: "IA optimisée (1 appel)"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {
     console.error("Error:", error);
-    console.error("Error stack:", error.stack);
+    console.error("Stack:", error.stack);
     return new Response(
       JSON.stringify({ 
         success: false,
         error: error.message || "Erreur inconnue",
-        details: error.stack,
         count: 0,
         prospects: []
       }),
