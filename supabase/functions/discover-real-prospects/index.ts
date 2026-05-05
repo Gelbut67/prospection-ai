@@ -1,21 +1,6 @@
-// Edge Function: Découverte de prospects réels (data.gouv.fr SIRENE + IA enrichissement)
+// Edge Function: Découverte de prospects réels (IA avec consigne stricte)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-
-// Mapping secteurs vers codes NAF
-const SECTOR_TO_NAF: any = {
-  "Vins & Spiritueux": "1102",
-  "Brasseries craft": "1105",
-  "Agroalimentaire": "10",
-  "Cosmétique & Parfumerie": "2042",
-  "Pharmacie & Parapharmacie": "2120",
-  "Huiles & Condiments": "1043",
-  "Miel & Confitures": "1039",
-  "Produits laitiers": "1051",
-  "Épicerie fine Bio": "1089",
-  "Chimie & Produits d'entretien": "2041",
-  "Compléments alimentaires": "2120"
-};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -26,165 +11,113 @@ Deno.serve(async (req) => {
     const criteria = await req.json();
     const groqApiKey = Deno.env.get("GROQ_API_KEY");
 
-    // 1. Recherche dans l'API SIRENE publique (recherche-entreprises.api.gouv.fr)
-    const dept = criteria.department || "";
-    
-    // Construction de la requête - l'API nécessite au moins un critère
-    let searchParams = new URLSearchParams();
-    searchParams.set("per_page", String(Math.min(criteria.count || 10, 25)));
-    searchParams.set("minimal", "true"); // Réponse minimale pour plus de rapidité
-    
-    // Recherche par département si spécifié
-    if (dept) {
-      searchParams.set("code_postal", dept);
-    } else {
-      // Par défaut, rechercher des entreprises actives
-      searchParams.set("etat_administratif", "A");
+    if (!groqApiKey) {
+      return new Response(
+        JSON.stringify({ error: "GROQ_API_KEY non configurée" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
-    
-    // Ajouter mots-clés si disponibles
-    if (criteria.keywords) {
-      searchParams.set("q", criteria.keywords);
-    } else if (criteria.sector && criteria.sector !== "Tous secteurs") {
-      // Utiliser le secteur comme mot-clé de recherche
-      searchParams.set("q", criteria.sector);
-    } else {
-      // Recherche générique par défaut
-      searchParams.set("q", "France");
+
+    // Prompt strict pour obtenir UNIQUEMENT des entreprises réelles
+    const prompt = `Tu es un expert en prospection B2B pour une entreprise française qui vend des étiquettes en bobine.
+
+MISSION CRITIQUE : Trouve ${criteria.count || 10} entreprises RÉELLES et VÉRIFIABLES qui existent vraiment en France.
+
+CRITÈRES :
+- Secteur : ${criteria.sector || 'Tous secteurs'}
+- Département : ${criteria.department || 'France entière'}
+- Ville : ${criteria.location || 'France'}
+- Mots-clés : ${criteria.keywords || 'Aucun'}
+${criteria.customPrompt ? `\nINSTRUCTIONS SPÉCIFIQUES : ${criteria.customPrompt}` : ''}
+
+⚠️ RÈGLES ABSOLUES :
+1. UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment
+2. Donne leur nom EXACT et officiel
+3. Donne leur ville EXACTE
+4. Si tu connais leur site web, donne-le (sinon laisse vide)
+5. Si tu connais un email de contact, donne-le (sinon laisse vide)
+6. Si tu connais le dirigeant, donne son nom (sinon laisse vide)
+7. NE JAMAIS INVENTER - si tu ne sais pas, marque "INCONNU"
+
+Réponds en JSON strict :
+{
+  "prospects": [
+    {
+      "company_name": "Nom exact de l'entreprise",
+      "city": "Ville exacte",
+      "department": "Numéro département (ex: 33)",
+      "website": "exemple.fr ou INCONNU",
+      "email": "contact@exemple.fr ou INCONNU",
+      "contact_name": "Nom du dirigeant ou INCONNU",
+      "sector": "${criteria.sector}",
+      "reason": "Pourquoi cette entreprise a besoin d'étiquettes",
+      "confidence": "high si tu es sûr à 100%, medium sinon"
     }
-    
-    const sireneUrl = `https://recherche-entreprises.api.gouv.fr/search?${searchParams.toString()}`;
-    
-    console.log("SIRENE URL:", sireneUrl);
-    
-    const sireneResponse = await fetch(sireneUrl, {
+  ]
+}`;
+
+    const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
       headers: {
-        "Accept": "application/json"
-      }
+        "Authorization": `Bearer ${groqApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+      }),
     });
 
-    console.log("SIRENE Response status:", sireneResponse.status);
-
-    let prospects = [];
-    
-    if (sireneResponse.ok) {
-      const sireneData = await sireneResponse.json();
-      console.log("SIRENE Data:", JSON.stringify(sireneData).substring(0, 500));
-      const results = sireneData.results || [];
-      console.log("Results count:", results.length);
-      
-      // 2. Enrichir chaque entreprise avec IA pour trouver site web et contacts
-      const enrichedProspects = await Promise.all(
-        results.slice(0, criteria.count || 10).map(async (company: any) => {
-          const companyName = company.nom_complet || company.nom_raison_sociale || "Entreprise";
-          const city = company.siege?.commune || "";
-          const siret = company.siege?.siret || "";
-          
-          let website = "";
-          let email = "";
-          let contactName = "";
-          
-          // Recherche Google réelle pour trouver le site web
-          try {
-            const searchQuery = encodeURIComponent(`${companyName} ${city} site officiel`);
-            const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
-            
-            // Utiliser l'IA pour extraire l'URL du site depuis les résultats Google
-            if (groqApiKey) {
-              const extractPrompt = `Recherche Google pour "${companyName}" à ${city}.
-
-Quel serait le domaine du site web officiel le plus probable pour cette entreprise ?
-Réponds UNIQUEMENT avec le nom de domaine (exemple: chateau-margaux.fr) ou "INCONNU" si tu ne peux pas le déterminer avec certitude.
-
-Format de réponse : juste le domaine, rien d'autre.`;
-
-              const extractResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${groqApiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: "llama-3.3-70b-versatile",
-                  messages: [{ role: "user", content: extractPrompt }],
-                  temperature: 0.1,
-                }),
-              });
-
-              if (extractResponse.ok) {
-                const extractData = await extractResponse.json();
-                const domain = extractData.choices[0].message.content.trim();
-                
-                if (domain && domain !== "INCONNU" && domain.includes(".")) {
-                  website = domain;
-                  
-                  // Essayer de récupérer la page pour extraire l'email
-                  try {
-                    const siteResponse = await fetch(`https://${website}`, {
-                      headers: { "User-Agent": "Mozilla/5.0" }
-                    });
-                    
-                    if (siteResponse.ok) {
-                      const html = await siteResponse.text();
-                      
-                      // Extraire email avec regex
-                      const emailMatch = html.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
-                      if (emailMatch) {
-                        email = emailMatch[1];
-                      }
-                    }
-                  } catch (e) {
-                    console.log("Failed to fetch website", website);
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.log("Web search failed for", companyName);
-          }
-          
-          // Construction du prospect - UNIQUEMENT données vérifiées
-          const hasWebsite = !!website;
-          const hasEmail = !!email;
-          
-          return {
-            company_name: companyName,
-            company_name_confidence: "✅ Vérifié SIRENE",
-            siret: siret,
-            sector: criteria.sector,
-            city: city,
-            city_confidence: "✅ Vérifié SIRENE",
-            department: company.siege?.code_postal?.substring(0, 2) || "",
-            postal_code: company.siege?.code_postal || "",
-            address: company.siege?.adresse || "",
-            country: "France",
-            website: website ? `https://${website}` : "",
-            website_confidence: hasWebsite ? "✅ Trouvé sur le web" : "❌ Non trouvé",
-            company_size: criteria.companySize || "PME",
-            company_size_confidence: "❌ Non disponible",
-            contact_name: contactName || "",
-            contact_name_confidence: contactName ? "✅ Trouvé sur le web" : "❌ Non trouvé",
-            contact_position: "Dirigeant",
-            email: email,
-            email_confidence: hasEmail ? "✅ Extrait du site web" : "❌ Non trouvé",
-            phone: "",
-            phone_confidence: "❌ Non disponible",
-            container_type: criteria.containerType || "À déterminer",
-            relevance_score: 85,
-            reason: `Entreprise réelle enregistrée au SIRENE dans le secteur ${criteria.sector}`,
-            verified: true,
-            data_quality: {
-              company_exists: "high",
-              website_accuracy: hasWebsite ? "high" : "none",
-              email_accuracy: hasEmail ? "high" : "none",
-              contact_accuracy: contactName ? "high" : "none"
-            }
-          };
-        })
-      );
-      
-      prospects = enrichedProspects;
+    if (!aiResponse.ok) {
+      throw new Error("Erreur IA");
     }
+
+    const aiData = await aiResponse.json();
+    const aiProspects = JSON.parse(aiData.choices[0].message.content).prospects || [];
+
+    // Formater les prospects avec badges de confiance
+    const prospects = aiProspects.map((p: any) => {
+      const hasWebsite = p.website && p.website !== "INCONNU";
+      const hasEmail = p.email && p.email !== "INCONNU";
+      const hasContact = p.contact_name && p.contact_name !== "INCONNU";
+      const isHighConfidence = p.confidence === "high";
+
+      return {
+        company_name: p.company_name,
+        company_name_confidence: isHighConfidence ? "✅ Entreprise connue" : "⚠️ À vérifier",
+        siret: "",
+        sector: p.sector || criteria.sector,
+        city: p.city,
+        city_confidence: isHighConfidence ? "✅ Vérifié" : "⚠️ À vérifier",
+        department: p.department || "",
+        postal_code: "",
+        address: "",
+        country: "France",
+        website: hasWebsite ? `https://${p.website.replace('https://', '').replace('http://', '')}` : "",
+        website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
+        company_size: criteria.companySize || "PME",
+        company_size_confidence: "❌ Non disponible",
+        contact_name: hasContact ? p.contact_name : "",
+        contact_name_confidence: hasContact ? "✅ Connu de l'IA" : "❌ Inconnu",
+        contact_position: "Dirigeant",
+        email: hasEmail ? p.email : "",
+        email_confidence: hasEmail ? "✅ Connu de l'IA" : "❌ Inconnu",
+        phone: "",
+        phone_confidence: "❌ Non disponible",
+        container_type: criteria.containerType || "À déterminer",
+        relevance_score: isHighConfidence ? 90 : 70,
+        reason: p.reason,
+        verified: isHighConfidence,
+        data_quality: {
+          company_exists: isHighConfidence ? "high" : "medium",
+          website_accuracy: hasWebsite ? "medium" : "none",
+          email_accuracy: hasEmail ? "medium" : "none",
+          contact_accuracy: hasContact ? "medium" : "none"
+        }
+      };
+    });
 
     return new Response(
       JSON.stringify({
