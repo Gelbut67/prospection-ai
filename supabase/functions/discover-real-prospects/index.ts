@@ -20,6 +20,71 @@ Deno.serve(async (req) => {
 
     console.log("Starting deep search with criteria:", criteria);
 
+    // ÉTAPE 0: Si une localisation précise est donnée, faire une recherche locale d'abord
+    let localProspects = [];
+    
+    if (criteria.location || criteria.department) {
+      const locationQuery = criteria.location || `département ${criteria.department}`;
+      const localSearchPrompt = `Recherche locale : "${criteria.sector || 'entreprises'}" près de "${locationQuery}" en France.
+
+MISSION : Liste TOUTES les entreprises locales que tu connais dans cette zone géographique précise.
+Privilégie les entreprises de proximité, même petites ou artisanales.
+
+Critères :
+- Zone : ${locationQuery}
+- Secteur : ${criteria.sector || 'tous'}
+- Rayon : maximum 20-30km autour de ${locationQuery}
+
+Donne UNIQUEMENT des entreprises que tu connais dans cette zone géographique.
+
+Réponds en JSON :
+{
+  "local_companies": [
+    {
+      "name": "Nom exact",
+      "city": "Ville exacte",
+      "distance_info": "à X km de ${locationQuery}",
+      "is_local": true
+    }
+  ]
+}`;
+
+      try {
+        const localResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${groqApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: localSearchPrompt }],
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (localResponse.ok) {
+          const localData = await localResponse.json();
+          const parsed = JSON.parse(localData.choices[0].message.content);
+          localProspects = (parsed.local_companies || []).map((c: any) => ({
+            company_name: c.name,
+            city: c.city,
+            department: criteria.department || "",
+            google_query: `${c.name} ${c.city} site officiel`,
+            reason: `Entreprise locale ${c.distance_info || 'dans la zone'}`,
+            criteria_match: `Proximité géographique de ${locationQuery}`,
+            confidence: "high",
+            is_local: true
+          }));
+          
+          console.log(`Local search found ${localProspects.length} nearby companies`);
+        }
+      } catch (e) {
+        console.log("Local search failed, continuing with general search");
+      }
+    }
+
     // ÉTAPE 1: L'IA génère une liste d'entreprises réelles + requêtes de recherche optimisées
     const step1Prompt = `Tu es un expert en prospection B2B pour une entreprise qui vend des étiquettes en bobine.
 
@@ -87,9 +152,15 @@ Réponds en JSON :
     }
 
     const step1Data = await step1Response.json();
-    const initialProspects = JSON.parse(step1Data.choices[0].message.content).prospects || [];
+    const generalProspects = JSON.parse(step1Data.choices[0].message.content).prospects || [];
     
-    console.log(`Step 1: Found ${initialProspects.length} initial prospects`);
+    console.log(`Step 1: Found ${generalProspects.length} general prospects`);
+
+    // Fusionner les prospects locaux (prioritaires) avec les généraux
+    const allProspects = [...localProspects, ...generalProspects];
+    const initialProspects = allProspects.slice(0, criteria.count || 10);
+    
+    console.log(`Combined: ${localProspects.length} local + ${generalProspects.length} general = ${initialProspects.length} total`);
 
     // VALIDATION STRICTE : Filtrer les prospects qui ne correspondent pas aux critères
     const validatedProspects = initialProspects.filter((p: any) => {
