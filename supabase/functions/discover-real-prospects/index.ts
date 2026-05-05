@@ -59,7 +59,7 @@ Réponds en JSON :
           body: JSON.stringify({
             model: "llama-3.3-70b-versatile",
             messages: [{ role: "user", content: localSearchPrompt }],
-            temperature: 0.1,
+            temperature: 0,
             response_format: { type: "json_object" },
           }),
         });
@@ -142,7 +142,7 @@ Réponds en JSON :
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: step1Prompt }],
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
       }),
     });
@@ -189,26 +189,30 @@ Réponds en JSON :
         // Sous-étape 2A: L'IA cherche dans sa mémoire toutes les infos sur cette entreprise
         const step2Prompt = `Entreprise : "${prospect.company_name}" à ${prospect.city}
 
-Donne-moi TOUTES les informations que tu connais sur cette entreprise :
+Donne-moi TOUTES les informations EXACTES que tu connais sur cette entreprise :
+- Adresse COMPLÈTE et EXACTE (numéro, rue, code postal, ville) - PRIORITAIRE
 - Site web officiel (domaine exact)
 - Email de contact (si tu le connais)
 - Téléphone (si tu le connais)
 - Profil LinkedIn (URL exacte)
 - Page Facebook (URL exacte)
 - Nom du dirigeant actuel (si tu le connais)
-- Adresse complète (si tu la connais)
 
-RÈGLE ABSOLUE : Si tu ne connais pas une info, marque "INCONNU". NE JAMAIS INVENTER.
+⚠️ RÈGLE ABSOLUE : 
+- Si tu ne connais pas une info EXACTE, marque "INCONNU"
+- NE JAMAIS INVENTER ou estimer
+- Pour l'adresse, donne le format complet : "12 rue de la Paix, 33000 Bordeaux"
 
 Réponds en JSON :
 {
+  "address": "adresse complète exacte ou INCONNU",
+  "postal_code": "code postal ou INCONNU",
   "website": "domaine.fr ou INCONNU",
   "email": "email ou INCONNU",
   "phone": "téléphone ou INCONNU",
   "linkedin": "URL ou INCONNU",
   "facebook": "URL ou INCONNU",
   "contact_name": "nom ou INCONNU",
-  "address": "adresse ou INCONNU",
   "additional_info": "toute autre info pertinente"
 }`;
 
@@ -221,7 +225,7 @@ Réponds en JSON :
           body: JSON.stringify({
             model: "llama-3.3-70b-versatile",
             messages: [{ role: "user", content: step2Prompt }],
-            temperature: 0.1,
+            temperature: 0,
             response_format: { type: "json_object" },
           }),
         });
@@ -292,8 +296,9 @@ Réponds en JSON :
           city: prospect.city,
           city_confidence: "✅ Vérifié",
           department: prospect.department || "",
-          postal_code: "",
+          postal_code: enrichedData.postal_code !== "INCONNU" ? enrichedData.postal_code : "",
           address: enrichedData.address !== "INCONNU" ? enrichedData.address : "",
+          address_confidence: enrichedData.address !== "INCONNU" ? "✅ Adresse exacte" : "❌ Non trouvée",
           country: "France",
           website: hasWebsite ? (enrichedData.website.startsWith('http') ? enrichedData.website : `https://${enrichedData.website}`) : "",
           website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
