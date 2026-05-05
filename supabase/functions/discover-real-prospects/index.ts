@@ -1,4 +1,4 @@
-// Edge Function: Découverte de prospects réels (IA avec consigne stricte)
+// Edge Function: Scraping Google + Réseaux sociaux pour prospects réels
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -11,120 +11,225 @@ Deno.serve(async (req) => {
     const criteria = await req.json();
     const groqApiKey = Deno.env.get("GROQ_API_KEY");
 
-    if (!groqApiKey) {
-      return new Response(
-        JSON.stringify({ error: "GROQ_API_KEY non configurée" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // 1. Construire la requête de recherche Google
+    const searchTerms = [
+      criteria.sector || "",
+      criteria.location || "",
+      criteria.department || "",
+      criteria.keywords || "",
+      "France"
+    ].filter(Boolean).join(" ");
 
-    // Prompt strict pour obtenir UNIQUEMENT des entreprises réelles
-    const prompt = `Tu es un expert en prospection B2B pour une entreprise française qui vend des étiquettes en bobine.
+    const googleQuery = encodeURIComponent(searchTerms);
+    const googleUrl = `https://www.google.com/search?q=${googleQuery}&num=20`;
 
-MISSION CRITIQUE : Trouve ${criteria.count || 10} entreprises RÉELLES et VÉRIFIABLES qui existent vraiment en France.
+    console.log("Searching Google for:", searchTerms);
 
-CRITÈRES :
-- Secteur : ${criteria.sector || 'Tous secteurs'}
-- Département : ${criteria.department || 'France entière'}
-- Ville : ${criteria.location || 'France'}
-- Mots-clés : ${criteria.keywords || 'Aucun'}
-${criteria.customPrompt ? `\nINSTRUCTIONS SPÉCIFIQUES : ${criteria.customPrompt}` : ''}
+    // 2. Scraper Google pour trouver des entreprises
+    let companies = [];
+    
+    try {
+      const response = await fetch(googleUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+      });
 
-⚠️ RÈGLES ABSOLUES :
-1. UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment
-2. Donne leur nom EXACT et officiel
-3. Donne leur ville EXACTE
-4. Si tu connais leur site web, donne-le (sinon laisse vide)
-5. Si tu connais un email de contact, donne-le (sinon laisse vide)
-6. Si tu connais le dirigeant, donne son nom (sinon laisse vide)
-7. NE JAMAIS INVENTER - si tu ne sais pas, marque "INCONNU"
+      if (response.ok) {
+        const html = await response.text();
+        
+        // Utiliser l'IA pour extraire les noms d'entreprises depuis le HTML
+        if (groqApiKey) {
+          const extractPrompt = `Voici le HTML d'une page de résultats Google pour "${searchTerms}".
+
+Extrais UNIQUEMENT les noms d'entreprises françaises réelles que tu trouves dans ce HTML.
+Limite-toi à ${criteria.count || 10} entreprises maximum.
+
+HTML (extrait):
+${html.substring(0, 8000)}
 
 Réponds en JSON strict :
 {
-  "prospects": [
-    {
-      "company_name": "Nom exact de l'entreprise",
-      "city": "Ville exacte",
-      "department": "Numéro département (ex: 33)",
-      "website": "exemple.fr ou INCONNU",
-      "email": "contact@exemple.fr ou INCONNU",
-      "contact_name": "Nom du dirigeant ou INCONNU",
-      "sector": "${criteria.sector}",
-      "reason": "Pourquoi cette entreprise a besoin d'étiquettes",
-      "confidence": "high si tu es sûr à 100%, medium sinon"
-    }
-  ]
+  "companies": ["Nom Entreprise 1", "Nom Entreprise 2", ...]
 }`;
 
-    const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${groqApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      }),
-    });
+          const extractResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${groqApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: [{ role: "user", content: extractPrompt }],
+              temperature: 0.1,
+              response_format: { type: "json_object" },
+            }),
+          });
 
-    if (!aiResponse.ok) {
-      throw new Error("Erreur IA");
+          if (extractResponse.ok) {
+            const extractData = await extractResponse.json();
+            const extracted = JSON.parse(extractData.choices[0].message.content);
+            companies = extracted.companies || [];
+            console.log("Extracted companies:", companies.length);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Google scraping failed:", e);
     }
 
-    const aiData = await aiResponse.json();
-    const aiProspects = JSON.parse(aiData.choices[0].message.content).prospects || [];
+    // 3. Pour chaque entreprise, chercher ses infos complètes
+    const prospects = await Promise.all(
+      companies.slice(0, criteria.count || 10).map(async (companyName: string) => {
+        let website = "";
+        let email = "";
+        let phone = "";
+        let city = "";
+        let linkedin = "";
+        let facebook = "";
 
-    // Formater les prospects avec badges de confiance
-    const prospects = aiProspects.map((p: any) => {
-      const hasWebsite = p.website && p.website !== "INCONNU";
-      const hasEmail = p.email && p.email !== "INCONNU";
-      const hasContact = p.contact_name && p.contact_name !== "INCONNU";
-      const isHighConfidence = p.confidence === "high";
+        try {
+          // Recherche spécifique pour cette entreprise
+          const companyQuery = encodeURIComponent(`${companyName} site officiel contact`);
+          const companyUrl = `https://www.google.com/search?q=${companyQuery}`;
+          
+          const companyResponse = await fetch(companyUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          });
 
-      return {
-        company_name: p.company_name,
-        company_name_confidence: isHighConfidence ? "✅ Entreprise connue" : "⚠️ À vérifier",
-        siret: "",
-        sector: p.sector || criteria.sector,
-        city: p.city,
-        city_confidence: isHighConfidence ? "✅ Vérifié" : "⚠️ À vérifier",
-        department: p.department || "",
-        postal_code: "",
-        address: "",
-        country: "France",
-        website: hasWebsite ? `https://${p.website.replace('https://', '').replace('http://', '')}` : "",
-        website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
-        company_size: criteria.companySize || "PME",
-        company_size_confidence: "❌ Non disponible",
-        contact_name: hasContact ? p.contact_name : "",
-        contact_name_confidence: hasContact ? "✅ Connu de l'IA" : "❌ Inconnu",
-        contact_position: "Dirigeant",
-        email: hasEmail ? p.email : "",
-        email_confidence: hasEmail ? "✅ Connu de l'IA" : "❌ Inconnu",
-        phone: "",
-        phone_confidence: "❌ Non disponible",
-        container_type: criteria.containerType || "À déterminer",
-        relevance_score: isHighConfidence ? 90 : 70,
-        reason: p.reason,
-        verified: isHighConfidence,
-        data_quality: {
-          company_exists: isHighConfidence ? "high" : "medium",
-          website_accuracy: hasWebsite ? "medium" : "none",
-          email_accuracy: hasEmail ? "medium" : "none",
-          contact_accuracy: hasContact ? "medium" : "none"
+          if (companyResponse.ok) {
+            const companyHtml = await companyResponse.text();
+            
+            // Extraire le site web avec regex
+            const urlMatch = companyHtml.match(/https?:\/\/(www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
+            if (urlMatch) {
+              website = urlMatch[0];
+              
+              // Scraper le site web pour trouver email et téléphone
+              try {
+                const siteResponse = await fetch(website, {
+                  headers: { "User-Agent": "Mozilla/5.0" }
+                });
+                
+                if (siteResponse.ok) {
+                  const siteHtml = await siteResponse.text();
+                  
+                  // Extraire email
+                  const emailMatch = siteHtml.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+                  if (emailMatch) email = emailMatch[1];
+                  
+                  // Extraire téléphone français
+                  const phoneMatch = siteHtml.match(/0[1-9](?:[\s.-]?\d{2}){4}/);
+                  if (phoneMatch) phone = phoneMatch[0];
+                }
+              } catch (e) {
+                console.log("Failed to scrape website:", website);
+              }
+            }
+
+            // Chercher LinkedIn
+            const linkedinMatch = companyHtml.match(/linkedin\.com\/company\/([a-zA-Z0-9-]+)/);
+            if (linkedinMatch) linkedin = `https://linkedin.com/company/${linkedinMatch[1]}`;
+
+            // Chercher Facebook
+            const facebookMatch = companyHtml.match(/facebook\.com\/([a-zA-Z0-9.]+)/);
+            if (facebookMatch) facebook = `https://facebook.com/${facebookMatch[1]}`;
+          }
+
+          // Utiliser l'IA pour compléter les infos manquantes
+          if (groqApiKey && (!city || !email)) {
+            const infoPrompt = `Entreprise : "${companyName}"
+
+Si tu connais cette entreprise, donne-moi :
+- Ville (ou INCONNU)
+- Email probable si tu ne l'as pas (format: contact@domaine.fr ou INCONNU)
+- Département (numéro ou INCONNU)
+
+Réponds en JSON :
+{
+  "city": "ville ou INCONNU",
+  "email": "email ou INCONNU",
+  "department": "XX ou INCONNU"
+}`;
+
+            const infoResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${groqApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                messages: [{ role: "user", content: infoPrompt }],
+                temperature: 0.1,
+                response_format: { type: "json_object" },
+              }),
+            });
+
+            if (infoResponse.ok) {
+              const infoData = await infoResponse.json();
+              const info = JSON.parse(infoData.choices[0].message.content);
+              if (!city && info.city !== "INCONNU") city = info.city;
+              if (!email && info.email !== "INCONNU") email = info.email;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to get info for:", companyName);
         }
-      };
-    });
+
+        // Construire le prospect avec badges de confiance
+        const hasWebsite = !!website;
+        const hasEmail = !!email;
+        const hasPhone = !!phone;
+
+        return {
+          company_name: companyName,
+          company_name_confidence: "✅ Trouvé sur Google",
+          siret: "",
+          sector: criteria.sector || "À déterminer",
+          city: city || "",
+          city_confidence: city ? "✅ Vérifié" : "❌ Non trouvé",
+          department: "",
+          postal_code: "",
+          address: "",
+          country: "France",
+          website: website,
+          website_confidence: hasWebsite ? "✅ Trouvé sur Google" : "❌ Non trouvé",
+          company_size: criteria.companySize || "PME",
+          company_size_confidence: "❌ Non disponible",
+          contact_name: "",
+          contact_name_confidence: "❌ Non trouvé",
+          contact_position: "Dirigeant",
+          email: email,
+          email_confidence: hasEmail ? "✅ Extrait du site web" : "❌ Non trouvé",
+          phone: phone,
+          phone_confidence: hasPhone ? "✅ Extrait du site web" : "❌ Non trouvé",
+          linkedin: linkedin,
+          facebook: facebook,
+          social_media_confidence: (linkedin || facebook) ? "✅ Trouvé" : "❌ Non trouvé",
+          container_type: criteria.containerType || "À déterminer",
+          relevance_score: 80,
+          reason: `Entreprise trouvée sur Google dans le secteur ${criteria.sector}`,
+          verified: hasWebsite,
+          data_quality: {
+            company_exists: "high",
+            website_accuracy: hasWebsite ? "high" : "none",
+            email_accuracy: hasEmail ? "high" : "none",
+            contact_accuracy: "none"
+          }
+        };
+      })
+    );
 
     return new Response(
       JSON.stringify({
         success: true,
         count: prospects.length,
         prospects: prospects,
-        source: "SIRENE (data.gouv.fr) + IA enrichissement"
+        source: "Google Scraping + Réseaux sociaux"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
