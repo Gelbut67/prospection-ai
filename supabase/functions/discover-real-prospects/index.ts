@@ -23,19 +23,35 @@ Deno.serve(async (req) => {
     // ÉTAPE 1: L'IA génère une liste d'entreprises réelles + requêtes de recherche optimisées
     const step1Prompt = `Tu es un expert en prospection B2B pour une entreprise qui vend des étiquettes en bobine.
 
-MISSION : Génère ${criteria.count || 10} entreprises RÉELLES françaises dans le secteur "${criteria.sector || 'tous secteurs'}"
-${criteria.department ? `dans le département ${criteria.department}` : ''}
-${criteria.location ? `à ${criteria.location}` : ''}
-${criteria.keywords ? `avec les mots-clés: ${criteria.keywords}` : ''}
-${criteria.customPrompt ? `\nCRITÈRES SPÉCIFIQUES: ${criteria.customPrompt}` : ''}
+🎯 MISSION CRITIQUE : Génère ${criteria.count || 10} entreprises RÉELLES françaises qui correspondent EXACTEMENT à TOUS ces critères :
+
+📋 CRITÈRES OBLIGATOIRES :
+${criteria.sector ? `✅ Secteur : "${criteria.sector}" - OBLIGATOIRE` : ''}
+${criteria.department ? `✅ Département : ${criteria.department} - OBLIGATOIRE (ne donne QUE des entreprises dans ce département)` : ''}
+${criteria.location ? `✅ Ville/Zone : ${criteria.location} - OBLIGATOIRE` : ''}
+${criteria.keywords ? `✅ Mots-clés : ${criteria.keywords} - OBLIGATOIRE (l'entreprise DOIT correspondre)` : ''}
+${criteria.companySize ? `✅ Taille : ${criteria.companySize}` : ''}
+${criteria.containerType ? `✅ Type de contenant : ${criteria.containerType}` : ''}
+
+${criteria.customPrompt ? `🔥 INSTRUCTIONS PERSONNALISÉES PRIORITAIRES (À RESPECTER ABSOLUMENT) :
+${criteria.customPrompt}
+
+⚠️ Ces instructions personnalisées sont PRIORITAIRES sur tout le reste !` : ''}
+
+⚠️ RÈGLES ABSOLUES :
+1. Si un critère géographique est spécifié (département, ville), NE DONNE QUE des entreprises dans cette zone
+2. Si des instructions personnalisées sont données, elles sont PRIORITAIRES
+3. VÉRIFIE que chaque entreprise correspond à TOUS les critères avant de la proposer
+4. Si tu ne connais pas d'entreprise qui correspond EXACTEMENT, dis-le plutôt que d'en inventer
+5. Donne UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment
 
 Pour CHAQUE entreprise, fournis :
 1. Nom exact de l'entreprise
-2. Ville exacte
-3. Une requête Google optimale pour trouver leur site (ex: "Château Margaux Bordeaux site officiel")
-4. Pourquoi cette entreprise a besoin d'étiquettes
-
-IMPORTANT : Donne UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment.
+2. Ville exacte (DOIT correspondre aux critères géographiques)
+3. Département (DOIT correspondre si spécifié)
+4. Une requête Google optimale
+5. Pourquoi cette entreprise correspond EXACTEMENT aux critères
+6. Comment elle répond aux instructions personnalisées (si présentes)
 
 Réponds en JSON :
 {
@@ -45,7 +61,8 @@ Réponds en JSON :
       "city": "Ville",
       "department": "XX",
       "google_query": "requête optimisée",
-      "reason": "pourquoi cibler cette entreprise",
+      "reason": "pourquoi cette entreprise correspond EXACTEMENT aux critères",
+      "criteria_match": "comment elle répond aux instructions personnalisées",
       "confidence": "high ou medium"
     }
   ]
@@ -74,9 +91,28 @@ Réponds en JSON :
     
     console.log(`Step 1: Found ${initialProspects.length} initial prospects`);
 
-    // ÉTAPE 2: Pour chaque entreprise, recherche approfondie des coordonnées
+    // VALIDATION STRICTE : Filtrer les prospects qui ne correspondent pas aux critères
+    const validatedProspects = initialProspects.filter((p: any) => {
+      // Vérifier département si spécifié
+      if (criteria.department && p.department !== criteria.department) {
+        console.log(`Rejected ${p.company_name}: wrong department (${p.department} vs ${criteria.department})`);
+        return false;
+      }
+      
+      // Vérifier ville si spécifiée
+      if (criteria.location && !p.city.toLowerCase().includes(criteria.location.toLowerCase())) {
+        console.log(`Rejected ${p.company_name}: wrong location (${p.city} vs ${criteria.location})`);
+        return false;
+      }
+      
+      return true;
+    });
+
+    console.log(`After validation: ${validatedProspects.length} prospects match criteria`);
+
+    // ÉTAPE 2: Pour chaque entreprise validée, recherche approfondie des coordonnées
     const enrichedProspects = await Promise.all(
-      initialProspects.map(async (prospect: any) => {
+      validatedProspects.map(async (prospect: any) => {
         console.log(`Enriching: ${prospect.company_name}`);
 
         // Sous-étape 2A: L'IA cherche dans sa mémoire toutes les infos sur cette entreprise
