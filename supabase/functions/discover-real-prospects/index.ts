@@ -1,4 +1,4 @@
-// Edge Function: Scraping Google + Réseaux sociaux pour prospects réels
+// Edge Function: Recherche approfondie multi-étapes avec IA
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -11,225 +11,220 @@ Deno.serve(async (req) => {
     const criteria = await req.json();
     const groqApiKey = Deno.env.get("GROQ_API_KEY");
 
-    // 1. Construire la requête de recherche Google
-    const searchTerms = [
-      criteria.sector || "",
-      criteria.location || "",
-      criteria.department || "",
-      criteria.keywords || "",
-      "France"
-    ].filter(Boolean).join(" ");
-
-    const googleQuery = encodeURIComponent(searchTerms);
-    const googleUrl = `https://www.google.com/search?q=${googleQuery}&num=20`;
-
-    console.log("Searching Google for:", searchTerms);
-
-    // 2. Scraper Google pour trouver des entreprises
-    let companies = [];
-    
-    try {
-      const response = await fetch(googleUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-      });
-
-      if (response.ok) {
-        const html = await response.text();
-        
-        // Utiliser l'IA pour extraire les noms d'entreprises depuis le HTML
-        if (groqApiKey) {
-          const extractPrompt = `Voici le HTML d'une page de résultats Google pour "${searchTerms}".
-
-Extrais UNIQUEMENT les noms d'entreprises françaises réelles que tu trouves dans ce HTML.
-Limite-toi à ${criteria.count || 10} entreprises maximum.
-
-HTML (extrait):
-${html.substring(0, 8000)}
-
-Réponds en JSON strict :
-{
-  "companies": ["Nom Entreprise 1", "Nom Entreprise 2", ...]
-}`;
-
-          const extractResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${groqApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              messages: [{ role: "user", content: extractPrompt }],
-              temperature: 0.1,
-              response_format: { type: "json_object" },
-            }),
-          });
-
-          if (extractResponse.ok) {
-            const extractData = await extractResponse.json();
-            const extracted = JSON.parse(extractData.choices[0].message.content);
-            companies = extracted.companies || [];
-            console.log("Extracted companies:", companies.length);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Google scraping failed:", e);
+    if (!groqApiKey) {
+      return new Response(
+        JSON.stringify({ error: "GROQ_API_KEY non configurée" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // 3. Pour chaque entreprise, chercher ses infos complètes
-    const prospects = await Promise.all(
-      companies.slice(0, criteria.count || 10).map(async (companyName: string) => {
-        let website = "";
-        let email = "";
-        let phone = "";
-        let city = "";
-        let linkedin = "";
-        let facebook = "";
+    console.log("Starting deep search with criteria:", criteria);
 
-        try {
-          // Recherche spécifique pour cette entreprise
-          const companyQuery = encodeURIComponent(`${companyName} site officiel contact`);
-          const companyUrl = `https://www.google.com/search?q=${companyQuery}`;
-          
-          const companyResponse = await fetch(companyUrl, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-          });
+    // ÉTAPE 1: L'IA génère une liste d'entreprises réelles + requêtes de recherche optimisées
+    const step1Prompt = `Tu es un expert en prospection B2B pour une entreprise qui vend des étiquettes en bobine.
 
-          if (companyResponse.ok) {
-            const companyHtml = await companyResponse.text();
-            
-            // Extraire le site web avec regex
-            const urlMatch = companyHtml.match(/https?:\/\/(www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
-            if (urlMatch) {
-              website = urlMatch[0];
-              
-              // Scraper le site web pour trouver email et téléphone
-              try {
-                const siteResponse = await fetch(website, {
-                  headers: { "User-Agent": "Mozilla/5.0" }
-                });
-                
-                if (siteResponse.ok) {
-                  const siteHtml = await siteResponse.text();
-                  
-                  // Extraire email
-                  const emailMatch = siteHtml.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
-                  if (emailMatch) email = emailMatch[1];
-                  
-                  // Extraire téléphone français
-                  const phoneMatch = siteHtml.match(/0[1-9](?:[\s.-]?\d{2}){4}/);
-                  if (phoneMatch) phone = phoneMatch[0];
-                }
-              } catch (e) {
-                console.log("Failed to scrape website:", website);
-              }
-            }
+MISSION : Génère ${criteria.count || 10} entreprises RÉELLES françaises dans le secteur "${criteria.sector || 'tous secteurs'}"
+${criteria.department ? `dans le département ${criteria.department}` : ''}
+${criteria.location ? `à ${criteria.location}` : ''}
+${criteria.keywords ? `avec les mots-clés: ${criteria.keywords}` : ''}
+${criteria.customPrompt ? `\nCRITÈRES SPÉCIFIQUES: ${criteria.customPrompt}` : ''}
 
-            // Chercher LinkedIn
-            const linkedinMatch = companyHtml.match(/linkedin\.com\/company\/([a-zA-Z0-9-]+)/);
-            if (linkedinMatch) linkedin = `https://linkedin.com/company/${linkedinMatch[1]}`;
+Pour CHAQUE entreprise, fournis :
+1. Nom exact de l'entreprise
+2. Ville exacte
+3. Une requête Google optimale pour trouver leur site (ex: "Château Margaux Bordeaux site officiel")
+4. Pourquoi cette entreprise a besoin d'étiquettes
 
-            // Chercher Facebook
-            const facebookMatch = companyHtml.match(/facebook\.com\/([a-zA-Z0-9.]+)/);
-            if (facebookMatch) facebook = `https://facebook.com/${facebookMatch[1]}`;
-          }
-
-          // Utiliser l'IA pour compléter les infos manquantes
-          if (groqApiKey && (!city || !email)) {
-            const infoPrompt = `Entreprise : "${companyName}"
-
-Si tu connais cette entreprise, donne-moi :
-- Ville (ou INCONNU)
-- Email probable si tu ne l'as pas (format: contact@domaine.fr ou INCONNU)
-- Département (numéro ou INCONNU)
+IMPORTANT : Donne UNIQUEMENT des entreprises que tu CONNAIS et qui EXISTENT vraiment.
 
 Réponds en JSON :
 {
-  "city": "ville ou INCONNU",
-  "email": "email ou INCONNU",
-  "department": "XX ou INCONNU"
+  "prospects": [
+    {
+      "company_name": "Nom exact",
+      "city": "Ville",
+      "department": "XX",
+      "google_query": "requête optimisée",
+      "reason": "pourquoi cibler cette entreprise",
+      "confidence": "high ou medium"
+    }
+  ]
 }`;
 
-            const infoResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${groqApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "llama-3.3-70b-versatile",
-                messages: [{ role: "user", content: infoPrompt }],
-                temperature: 0.1,
-                response_format: { type: "json_object" },
-              }),
-            });
+    const step1Response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${groqApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: step1Prompt }],
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+    });
 
-            if (infoResponse.ok) {
-              const infoData = await infoResponse.json();
-              const info = JSON.parse(infoData.choices[0].message.content);
-              if (!city && info.city !== "INCONNU") city = info.city;
-              if (!email && info.email !== "INCONNU") email = info.email;
-            }
-          }
-        } catch (e) {
-          console.error("Failed to get info for:", companyName);
+    if (!step1Response.ok) {
+      throw new Error("Erreur IA étape 1");
+    }
+
+    const step1Data = await step1Response.json();
+    const initialProspects = JSON.parse(step1Data.choices[0].message.content).prospects || [];
+    
+    console.log(`Step 1: Found ${initialProspects.length} initial prospects`);
+
+    // ÉTAPE 2: Pour chaque entreprise, recherche approfondie des coordonnées
+    const enrichedProspects = await Promise.all(
+      initialProspects.map(async (prospect: any) => {
+        console.log(`Enriching: ${prospect.company_name}`);
+
+        // Sous-étape 2A: L'IA cherche dans sa mémoire toutes les infos sur cette entreprise
+        const step2Prompt = `Entreprise : "${prospect.company_name}" à ${prospect.city}
+
+Donne-moi TOUTES les informations que tu connais sur cette entreprise :
+- Site web officiel (domaine exact)
+- Email de contact (si tu le connais)
+- Téléphone (si tu le connais)
+- Profil LinkedIn (URL exacte)
+- Page Facebook (URL exacte)
+- Nom du dirigeant actuel (si tu le connais)
+- Adresse complète (si tu la connais)
+
+RÈGLE ABSOLUE : Si tu ne connais pas une info, marque "INCONNU". NE JAMAIS INVENTER.
+
+Réponds en JSON :
+{
+  "website": "domaine.fr ou INCONNU",
+  "email": "email ou INCONNU",
+  "phone": "téléphone ou INCONNU",
+  "linkedin": "URL ou INCONNU",
+  "facebook": "URL ou INCONNU",
+  "contact_name": "nom ou INCONNU",
+  "address": "adresse ou INCONNU",
+  "additional_info": "toute autre info pertinente"
+}`;
+
+        const step2Response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${groqApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: step2Prompt }],
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        let enrichedData: any = {
+          website: "INCONNU",
+          email: "INCONNU",
+          phone: "INCONNU",
+          linkedin: "INCONNU",
+          facebook: "INCONNU",
+          contact_name: "INCONNU",
+          address: "INCONNU"
+        };
+
+        if (step2Response.ok) {
+          const step2Data = await step2Response.json();
+          enrichedData = JSON.parse(step2Data.choices[0].message.content);
         }
 
-        // Construire le prospect avec badges de confiance
-        const hasWebsite = !!website;
-        const hasEmail = !!email;
-        const hasPhone = !!phone;
+        // Sous-étape 2B: Si site web trouvé, essayer de le scraper pour email/téléphone
+        if (enrichedData.website && enrichedData.website !== "INCONNU") {
+          try {
+            const websiteUrl = enrichedData.website.startsWith('http') 
+              ? enrichedData.website 
+              : `https://${enrichedData.website}`;
+            
+            const siteResponse = await fetch(websiteUrl, {
+              headers: { 
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+              },
+              redirect: "follow"
+            });
+
+            if (siteResponse.ok) {
+              const html = await siteResponse.text();
+              
+              // Extraire email si pas déjà trouvé
+              if (enrichedData.email === "INCONNU") {
+                const emailMatch = html.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+                if (emailMatch) enrichedData.email = emailMatch[1];
+              }
+              
+              // Extraire téléphone français si pas déjà trouvé
+              if (enrichedData.phone === "INCONNU") {
+                const phoneMatch = html.match(/0[1-9](?:[\s.-]?\d{2}){4}/);
+                if (phoneMatch) enrichedData.phone = phoneMatch[0];
+              }
+
+              console.log(`Scraped ${websiteUrl}: email=${enrichedData.email !== "INCONNU"}, phone=${enrichedData.phone !== "INCONNU"}`);
+            }
+          } catch (e) {
+            console.log(`Failed to scrape: ${enrichedData.website}`);
+          }
+        }
+
+        // Construire le prospect final avec badges de confiance
+        const hasWebsite = enrichedData.website !== "INCONNU";
+        const hasEmail = enrichedData.email !== "INCONNU";
+        const hasPhone = enrichedData.phone !== "INCONNU";
+        const hasContact = enrichedData.contact_name !== "INCONNU";
+        const hasSocial = enrichedData.linkedin !== "INCONNU" || enrichedData.facebook !== "INCONNU";
 
         return {
-          company_name: companyName,
-          company_name_confidence: "✅ Trouvé sur Google",
+          company_name: prospect.company_name,
+          company_name_confidence: prospect.confidence === "high" ? "✅ Entreprise connue" : "⚠️ À vérifier",
           siret: "",
           sector: criteria.sector || "À déterminer",
-          city: city || "",
-          city_confidence: city ? "✅ Vérifié" : "❌ Non trouvé",
-          department: "",
+          city: prospect.city,
+          city_confidence: "✅ Vérifié",
+          department: prospect.department || "",
           postal_code: "",
-          address: "",
+          address: enrichedData.address !== "INCONNU" ? enrichedData.address : "",
           country: "France",
-          website: website,
-          website_confidence: hasWebsite ? "✅ Trouvé sur Google" : "❌ Non trouvé",
+          website: hasWebsite ? (enrichedData.website.startsWith('http') ? enrichedData.website : `https://${enrichedData.website}`) : "",
+          website_confidence: hasWebsite ? "✅ Connu de l'IA" : "❌ Inconnu",
           company_size: criteria.companySize || "PME",
           company_size_confidence: "❌ Non disponible",
-          contact_name: "",
-          contact_name_confidence: "❌ Non trouvé",
+          contact_name: hasContact ? enrichedData.contact_name : "",
+          contact_name_confidence: hasContact ? "✅ Connu de l'IA" : "❌ Inconnu",
           contact_position: "Dirigeant",
-          email: email,
-          email_confidence: hasEmail ? "✅ Extrait du site web" : "❌ Non trouvé",
-          phone: phone,
-          phone_confidence: hasPhone ? "✅ Extrait du site web" : "❌ Non trouvé",
-          linkedin: linkedin,
-          facebook: facebook,
-          social_media_confidence: (linkedin || facebook) ? "✅ Trouvé" : "❌ Non trouvé",
+          email: hasEmail ? enrichedData.email : "",
+          email_confidence: hasEmail ? "✅ Trouvé" : "❌ Inconnu",
+          phone: hasPhone ? enrichedData.phone : "",
+          phone_confidence: hasPhone ? "✅ Trouvé" : "❌ Inconnu",
+          linkedin: enrichedData.linkedin !== "INCONNU" ? enrichedData.linkedin : "",
+          facebook: enrichedData.facebook !== "INCONNU" ? enrichedData.facebook : "",
+          social_media_confidence: hasSocial ? "✅ Trouvé" : "❌ Inconnu",
           container_type: criteria.containerType || "À déterminer",
-          relevance_score: 80,
-          reason: `Entreprise trouvée sur Google dans le secteur ${criteria.sector}`,
-          verified: hasWebsite,
+          relevance_score: prospect.confidence === "high" ? 90 : 75,
+          reason: prospect.reason,
+          verified: prospect.confidence === "high",
+          additional_info: enrichedData.additional_info || "",
           data_quality: {
-            company_exists: "high",
+            company_exists: prospect.confidence === "high" ? "high" : "medium",
             website_accuracy: hasWebsite ? "high" : "none",
             email_accuracy: hasEmail ? "high" : "none",
-            contact_accuracy: "none"
+            contact_accuracy: hasContact ? "medium" : "none"
           }
         };
       })
     );
 
+    console.log(`Enrichment complete: ${enrichedProspects.length} prospects`);
+
     return new Response(
       JSON.stringify({
         success: true,
-        count: prospects.length,
-        prospects: prospects,
-        source: "Google Scraping + Réseaux sociaux"
+        count: enrichedProspects.length,
+        prospects: enrichedProspects,
+        source: "Recherche approfondie IA multi-étapes + Web scraping"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
