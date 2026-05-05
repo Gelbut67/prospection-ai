@@ -56,6 +56,16 @@ Réponds de manière concise et utile. Si l'utilisateur demande une nouvelle rec
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Limite de requêtes Groq atteinte. Veuillez attendre 1-2 minutes avant de réessayer.",
+            retry_after: 60
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       throw new Error(`Groq API error: ${response.status}`);
     }
 
