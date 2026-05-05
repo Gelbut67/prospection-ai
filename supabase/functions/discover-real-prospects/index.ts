@@ -29,17 +29,28 @@ Deno.serve(async (req) => {
     // 1. Recherche dans l'API SIRENE publique (recherche-entreprises.api.gouv.fr)
     const dept = criteria.department || "";
     
-    // Construction de la requête
+    // Construction de la requête - l'API nécessite au moins un critère
     let searchParams = new URLSearchParams();
     searchParams.set("per_page", String(Math.min(criteria.count || 10, 25)));
+    searchParams.set("minimal", "true"); // Réponse minimale pour plus de rapidité
     
+    // Recherche par département si spécifié
     if (dept) {
-      searchParams.set("code_postal", dept + "*");
+      searchParams.set("code_postal", dept);
+    } else {
+      // Par défaut, rechercher des entreprises actives
+      searchParams.set("etat_administratif", "A");
     }
     
-    // Ajouter un terme de recherche basé sur le secteur
-    if (criteria.sector && criteria.sector !== "Tous secteurs") {
-      searchParams.set("activite_principale", criteria.sector);
+    // Ajouter mots-clés si disponibles
+    if (criteria.keywords) {
+      searchParams.set("q", criteria.keywords);
+    } else if (criteria.sector && criteria.sector !== "Tous secteurs") {
+      // Utiliser le secteur comme mot-clé de recherche
+      searchParams.set("q", criteria.sector);
+    } else {
+      // Recherche générique par défaut
+      searchParams.set("q", "France");
     }
     
     const sireneUrl = `https://recherche-entreprises.api.gouv.fr/search?${searchParams.toString()}`;
